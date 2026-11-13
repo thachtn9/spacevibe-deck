@@ -29,6 +29,8 @@ const SOURCE_ROOT = pathFromFileUrl(new URL("../src/", import.meta.url));
  * a place where a hand-drawn icon can hide.
  */
 const ALLOWED_SVG: ReadonlyMap<string, number> = new Map([
+  // Quota arcs visualize two allowance values; they are data marks, not icons.
+  ["ui/usage/rail-quota-panel.tsx", 1],
   // The agent-pending ring: ticks positioned by hand and spun by CSS. No
   // library icon expresses it, and it is a status visual, not an action.
   ["ui/workspace-spinner.tsx", 1],
@@ -64,6 +66,8 @@ const RETIRED_GLYPHS: ReadonlyArray<{ glyph: string; meant: string }> = [
 const GLYPH_EXEMPT = (path: string): boolean =>
   path.endsWith(".test.ts") ||
   path.endsWith(".test.tsx") ||
+  // Captured viewport dimensions use multiplication as data, not a close action.
+  path === "web-review/window.tsx" ||
   path === "lib/shortcut-label.ts" ||
   path === "terminal/link-provider.ts" ||
   path === "open-board/workspaces-store.ts" ||

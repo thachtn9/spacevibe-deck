@@ -62,6 +62,7 @@ describe("createTabManager dropAgentPane", () => {
     const { tm, pty } = build([]);
     await tm.openFromPreset({ type: "leaf" }, ["/work"], { workspacePath: "/work", agent: null });
     let running = true;
+    let resumed = false;
     const sessionId = "11111111-1111-4111-8111-111111111111";
     const killForeground = vi.fn(async () => {
       running = false;
@@ -70,14 +71,20 @@ describe("createTabManager dropAgentPane", () => {
     vi.spyOn(pty, "ptyInfo").mockImplementation(async () => [
       {
         id: 1,
-        processId: running ? 123 : 100,
+        processId: resumed ? 456 : running ? 123 : 100,
         cwd: "/work",
-        process: running ? "codex" : "bash",
-        kind: running ? "agent" : "idle-shell",
-        agent: running ? "codex" : null,
-        codexSessionId: running ? sessionId : null,
+        process: running || resumed ? "codex" : "bash",
+        kind: running || resumed ? "agent" : "idle-shell",
+        agent: running || resumed ? "codex" : null,
+        codexSessionId: running || resumed ? sessionId : null,
+        account: resumed ? "codex2" : "codex1",
       },
     ]);
+    const writePty = pty.writePty.bind(pty);
+    vi.spyOn(pty, "writePty").mockImplementation(async (id, data) => {
+      await writePty(id, data);
+      if (data.includes(`cli resume ${sessionId} --acc codex2`)) resumed = true;
+    });
     await tm.pinPane(1, "left");
     const tabKey = tabViews.value[0].key;
     const before = tm.captureSession()[0].panes[0].pin;

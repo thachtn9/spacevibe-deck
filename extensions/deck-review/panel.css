@@ -600,7 +600,9 @@ kbd,
   border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   user-select: text;
 }
 
@@ -610,7 +612,9 @@ kbd,
 
 .note.is-selected {
   border-color: var(--border-active);
-  box-shadow: 0 0 0 1px var(--accent-subtle), 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 0 0 1px var(--accent-subtle),
+    0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .note-summary {

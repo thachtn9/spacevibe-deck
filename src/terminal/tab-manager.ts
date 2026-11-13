@@ -615,8 +615,12 @@ export function createTabManager(
         const snap = tracker.snapshot(id);
         const processInfo = poller.infoFor(id);
         if (processInfo?.kind === "agent" && processInfo.processId && snap) {
-          reviewInput.observe(id, `${processInfo.processId}:${processInfo.codexSessionId ?? processInfo.agySessionId ?? ""}`,
-            snap.phase, snap.phaseConfidence);
+          reviewInput.observe(
+            id,
+            `${processInfo.processId}:${processInfo.codexSessionId ?? processInfo.agySessionId ?? ""}`,
+            snap.phase,
+            snap.phaseConfidence,
+          );
         }
         const live = explicitAgent(poller.infoFor(id));
         // An agent that ENDED keeps its name on the projection until the end
@@ -1174,7 +1178,9 @@ export function createTabManager(
       ...deps,
       transfer,
       inputBlocked: (id: number) =>
-        accountSwitchInputBlocks.has(id) || reviewInputBlocks.has(id) || deps.inputBlocked?.(id) === true,
+        accountSwitchInputBlocks.has(id) ||
+        reviewInputBlocks.has(id) ||
+        deps.inputBlocked?.(id) === true,
       identity: (paneId: number) => {
         const override = overrides.get(tabKey);
         // Read from the live entry, never from a value captured here: a tab
@@ -2449,7 +2455,11 @@ export function createTabManager(
                 hasRun: attention.hasRun,
                 changedAt: attention.changedAt,
                 revision: attention.revision,
-                inputPending: reviewInput.pending(paneId, attention.phase, attention.phaseConfidence),
+                inputPending: reviewInput.pending(
+                  paneId,
+                  attention.phase,
+                  attention.phaseConfidence,
+                ),
               } satisfies ReviewCandidate,
             ];
           }),

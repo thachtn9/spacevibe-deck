@@ -489,7 +489,14 @@ export function actionGroups(
   const os: ActionRow[] = [];
   const openWeb = actions.onOpenWeb;
   if (openWeb !== undefined) {
-    os.push({ kind: "action", id: "browser-extension", title: "Browser Extension", detail: "Connect Chrome to Deck", glyph: "web", run: () => openWeb(subject.path) });
+    os.push({
+      kind: "action",
+      id: "browser-extension",
+      title: "Browser Extension",
+      detail: "Connect Chrome to Deck",
+      glyph: "web",
+      run: () => openWeb(subject.path),
+    });
   }
   const viewCode = actions.onViewCode;
   if (viewCode !== undefined) {

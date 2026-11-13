@@ -113,5 +113,7 @@ export function reviewReady(candidate: ReviewCandidate): boolean {
 }
 
 export const WEB_REVIEW_CHANNELS: ReadonlySet<string> = new Set([
-  "web_review_state", "web_review_pairing", "web_review_revoke",
+  "web_review_state",
+  "web_review_pairing",
+  "web_review_revoke",
 ]);

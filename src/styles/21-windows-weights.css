@@ -72,6 +72,9 @@
    beside its 600 separator; a secondary button beside the primary).
    `.asr-needs__chip` only mounts in the gallery; it is answered here because
    the shipped sheet still carries it. */
+.window--windows .wr-comments strong,
+.window--windows .wr-field,
+.window--windows .wr-copy-btn,
 .window--windows .asr-checkout__name,
 .window--windows .asr-checkout__tag,
 .window--windows .asr-card__row .asr-card__name,
@@ -148,6 +151,9 @@
    over the 600 chips beside it (macOS 650 over 550). The same Bold the
    browser already picks for these, made explicit. (`.asr-needs__count` is
    gallery-only, like its chip above.) */
+.window--windows .wr-pairing-header h1,
+.window--windows .wr-steps-section h2,
+.window--windows .wr-step-number,
 .window--windows .asr-needs__count,
 .window--windows .nt-quick-launch__head strong,
 .window--windows .board-home__title,

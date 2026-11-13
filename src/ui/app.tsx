@@ -2338,7 +2338,9 @@ export function App({ boot = { kind: "normal" } }: { boot?: BootMode } = {}) {
             void openCodeViewer(path).catch((error: unknown) => reportPersistError(String(error)));
           },
           onOpenWeb: (path: string, configure = false) => {
-            void webReviewHost.open(path, configure).catch((error: unknown) => reportPersistError(String(error)));
+            void webReviewHost
+              .open(path, configure)
+              .catch((error: unknown) => reportPersistError(String(error)));
           },
           onOpenVSCode: (path: string) => {
             void openInApp({ appId: "vscode", path, isDirectory: true, line: 0, column: 0 }).catch(

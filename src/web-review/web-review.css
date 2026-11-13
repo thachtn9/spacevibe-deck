@@ -529,13 +529,40 @@ body {
     padding: 7px 8px;
   }
 }
-.wr-pairing { max-width: 680px; padding: 36px; margin: auto; gap: 16px; overflow: auto; }
-.wr-pairing h1, .wr-pairing h2, .wr-pairing p { margin: 0; line-height: 1.6; }
-.wr-pairing h1 { font-size: var(--type-title); }
-.wr-pairing h2 { font-size: var(--type-body); margin-top: 20px; }
-.wr-pairing output { font-size: 32px; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
-.wr-pairing > div { display: flex; gap: 12px; flex-wrap: wrap; }
-.wr-pairing li { margin-bottom: 10px; line-height: 1.6; }
+.wr-pairing {
+  max-width: 680px;
+  padding: 36px;
+  margin: auto;
+  gap: 16px;
+  overflow: auto;
+}
+.wr-pairing h1,
+.wr-pairing h2,
+.wr-pairing p {
+  margin: 0;
+  line-height: 1.6;
+}
+.wr-pairing h1 {
+  font-size: var(--type-title);
+}
+.wr-pairing h2 {
+  font-size: var(--type-body);
+  margin-top: 20px;
+}
+.wr-pairing output {
+  font-size: 32px;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+.wr-pairing > div {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.wr-pairing li {
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
 
 /* ==========================================================================
    Upgraded Codex-style Pairing Wizard

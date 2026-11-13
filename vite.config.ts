@@ -16,7 +16,12 @@ export default defineConfig(async () => ({
   base: "./",
   build: {
     rollupOptions: {
-      input: { main: "index.html", textEditor: "text-editor.html", desktopAgents: "desktop-agents.html", webReview: "web-review.html" },
+      input: {
+        main: "index.html",
+        textEditor: "text-editor.html",
+        desktopAgents: "desktop-agents.html",
+        webReview: "web-review.html",
+      },
     },
     // esbuild 0.25 mis-minifies xterm 6's function-local enum in
     // InputHandler.requestMode: it drops the declaration but leaves a renamed

@@ -174,7 +174,8 @@ const textEditor = registerTextEditor({
   preload: PRELOAD,
   rendererDir: RENDERER_DIR,
   devServerUrl: DEV_SERVER_URL,
-  isDeckWindow: (event) => [...windows.values()].some((window) => window.webContents.id === event.sender.id),
+  isDeckWindow: (event) =>
+    [...windows.values()].some((window) => window.webContents.id === event.sender.id),
 });
 
 const codeViewers = registerCodeViewerWindows({
@@ -815,7 +816,10 @@ app.whenReady().then(async () => {
 app.on("before-quit", (event) => {
   if (webReview.hasWindow()) {
     event.preventDefault();
-    void webReview.closeForQuit().then(() => app.quit()).catch(error => console.error("Web Review drafts could not be flushed", error));
+    void webReview
+      .closeForQuit()
+      .then(() => app.quit())
+      .catch((error) => console.error("Web Review drafts could not be flushed", error));
     return;
   }
   if (textEditor.hasWindow()) {

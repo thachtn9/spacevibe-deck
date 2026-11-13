@@ -2,12 +2,12 @@
   if (globalThis.__deckReviewBridge) return;
   globalThis.__deckReviewBridge = true;
 
-  let gesture = Date.now();
+  let _gesture = Date.now();
   for (const type of ["pointerup", "pointerdown", "keydown", "click"]) {
     window.addEventListener(
       type,
       (e) => {
-        if (e.isTrusted) gesture = Date.now();
+        if (e.isTrusted) _gesture = Date.now();
       },
       true,
     );

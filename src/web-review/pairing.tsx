@@ -2,14 +2,7 @@
 import { render } from "preact";
 import { useEffect } from "preact/hooks";
 import { useSignal } from "@preact/signals";
-import {
-  ArrowClockwise,
-  Copy,
-  Check,
-  Plugs,
-  Browser,
-  ShieldCheck,
-} from "@phosphor-icons/react";
+import { ArrowClockwise, Copy, Check, Plugs, Browser, ShieldCheck } from "@phosphor-icons/react";
 import { invoke } from "../host/bridge";
 import { applyThemeVars } from "../lib/theme-vars";
 import type { ReviewSnapshot } from "../lib/web-review";
@@ -84,7 +77,8 @@ function Pairing() {
           </div>
           <h1>Connect Chrome to Deck</h1>
           <p class="wr-pairing-subtitle">
-            Pair the Deck Review extension to review web applications and queue feedback directly into your agent conversations.
+            Pair the Deck Review extension to review web applications and queue feedback directly
+            into your agent conversations.
           </p>
         </div>
 
@@ -180,7 +174,10 @@ function Pairing() {
               <span class="wr-step-number">1</span>
               <div class="wr-step-content">
                 <strong>Load Extension</strong>
-                <p>Open <code>chrome://extensions</code>, enable Developer mode, click <strong>Load unpacked</strong> and select <code>extensions/deck-review</code>.</p>
+                <p>
+                  Open <code>chrome://extensions</code>, enable Developer mode, click{" "}
+                  <strong>Load unpacked</strong> and select <code>extensions/deck-review</code>.
+                </p>
               </div>
             </div>
 
@@ -188,7 +185,10 @@ function Pairing() {
               <span class="wr-step-number">2</span>
               <div class="wr-step-content">
                 <strong>Enter Code</strong>
-                <p>Pin Deck Review in Chrome, click its icon on your app page, and enter the 6-digit code above.</p>
+                <p>
+                  Pin Deck Review in Chrome, click its icon on your app page, and enter the 6-digit
+                  code above.
+                </p>
               </div>
             </div>
 
@@ -196,7 +196,10 @@ function Pairing() {
               <span class="wr-step-number">3</span>
               <div class="wr-step-content">
                 <strong>Review & Annotate</strong>
-                <p>Click elements or regions to leave notes, choose your source and conversation, then queue changes.</p>
+                <p>
+                  Click elements or regions to leave notes, choose your source and conversation,
+                  then queue changes.
+                </p>
               </div>
             </div>
           </div>
@@ -204,7 +207,10 @@ function Pairing() {
 
         <div class="wr-footer-tip">
           <ShieldCheck size={16} />
-          <span>Pairing uses a local authenticated loopback bridge on 127.0.0.1:43129. Credentials remain private.</span>
+          <span>
+            Pairing uses a local authenticated loopback bridge on 127.0.0.1:43129. Credentials
+            remain private.
+          </span>
         </div>
       </div>
     </main>

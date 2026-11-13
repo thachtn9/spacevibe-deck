@@ -31,8 +31,11 @@ contextBridge.exposeInMainWorld("__deckHost", {
    * table this set is built from.
    */
   invoke: (channel: string, payload?: unknown) => {
-    if (!INVOKABLE_CHANNELS.has(channel) || (codeViewer && !CODE_VIEWER_CHANNELS.has(channel)) ||
-        (webReview && !WEB_REVIEW_CHANNELS.has(channel))) {
+    if (
+      !INVOKABLE_CHANNELS.has(channel) ||
+      (codeViewer && !CODE_VIEWER_CHANNELS.has(channel)) ||
+      (webReview && !WEB_REVIEW_CHANNELS.has(channel))
+    ) {
       return Promise.reject(new Error(`Deck: refused an unknown host channel "${channel}"`));
     }
     return ipcRenderer.invoke(channel, payload ?? {});

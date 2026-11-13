@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-control-regex -- Terminal protocol assertions intentionally match ESC control sequences. */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import type { Terminal as HeadlessTerminal } from "@xterm/headless";

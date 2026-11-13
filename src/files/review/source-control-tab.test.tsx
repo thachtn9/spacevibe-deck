@@ -210,6 +210,7 @@ it("removes a repository without deleting files, clears its diff and restores it
   act(() => render(<CodeSourceControl root="/parent" />, container));
   await settle();
   await settle();
+  await vi.waitFor(() => expect(container.querySelector(".git-review-file")).not.toBeNull());
   click(container.querySelector(".git-review-file"));
   await settle();
   click(container.querySelector('[aria-label="Remove a from source control"]'));

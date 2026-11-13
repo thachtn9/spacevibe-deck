@@ -138,10 +138,21 @@ export function registerWebReview(deps: {
       }),
   });
   const extension = createReviewExtensionServer({ storage, candidates, verify, changed });
-  void storage.load().then(changed).catch(error => console.warn("Browser review storage unavailable", error));
-  void extension.start().catch(error => console.warn("Browser extension bridge unavailable", error));
-  ipcMain.handle("web_review_pairing", event => { projectFor(event); return extension.pairing(); });
-  ipcMain.handle("web_review_revoke", event => { projectFor(event); return extension.revoke(); });
+  void storage
+    .load()
+    .then(changed)
+    .catch((error) => console.warn("Browser review storage unavailable", error));
+  void extension
+    .start()
+    .catch((error) => console.warn("Browser extension bridge unavailable", error));
+  ipcMain.handle("web_review_pairing", (event) => {
+    projectFor(event);
+    return extension.pairing();
+  });
+  ipcMain.handle("web_review_revoke", (event) => {
+    projectFor(event);
+    return extension.revoke();
+  });
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   function changed(): void {
     window.changed();

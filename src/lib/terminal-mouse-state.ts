@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-control-regex -- Terminal protocol assertions intentionally match ESC control sequences. */
 interface MouseTerminal {
   readonly _core?: { readonly coreMouseService?: { readonly activeEncoding?: string } };
 }

@@ -330,7 +330,11 @@ export interface TabManager {
    */
   restartPane(paneId: number): Promise<boolean>;
   webReviewTargets?(clientId: string): ReviewCandidate[];
-  deliverWebReview?(target: ReviewTarget, attemptId: string, clientId: string): Promise<ReviewDelivery>;
+  deliverWebReview?(
+    target: ReviewTarget,
+    attemptId: string,
+    clientId: string,
+  ): Promise<ReviewDelivery>;
   /**
    * Paste `text` into `paneId`, then submit only when the triple gate still
    * holds (spec §7). Never throws: a failed gate degrades to `"pasted"`, a
