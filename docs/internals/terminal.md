@@ -12,14 +12,76 @@ window-transfer protocols. The vocabulary is in [glossary.md](glossary.md).
 
 The Electron [agent pane header](../../src/terminal/pane-agent-header.tsx) reads
 the same pane tail as the sidebar and disposes its subscriptions with the pane.
-The header draws no buttons (DL-32.8): the Claude Effort picker and the pane's
-split, Focus expand and Close actions were removed on 2026-10-10; those acts live in
-`More` and on their chords. Claude's own model/effort picker is still reachable with
+An account drop onto its header replaces the running agent inside the existing PTY,
+using the live process's exact session id and the new CLI Manager account. The renderer
+checks identity before stopping, waits for an idle shell and preserves the agent's cwd;
+unproven identity or a different agent refuses before stopping. The Linux GUI also ends
+tty-bound detached descendants before the daemon's foreground stop, because an older
+terminal service cannot see AGY's separate POSIX session. Account drops onto the terminal
+body continue to split; drops onto a rail folder continue to open a separate tab.
+Force-stopping a TUI can leave mouse capture, raw tty settings and an alternate screen
+enabled. Account handoff discards input at enqueue and drain time, then resets the renderer
+after observing the idle shell. The resume write clears pending readline input, restores
+POSIX tty settings and prints the same reset through the PTY so the detached screen stays
+consistent. Queuing input for later would send mouse reports into the shell after the TUI
+exits, corrupting the resume command. Normal input resumes after the handoff completes.
+Decision-point process reads require fresh identity discovery. GUI main also applies
+Codex's invocation-local log directory when
+an older service returns an unmodified launch command. An already-running CLI using a
+shared app-server may still have no process-bound identity; it must be resumed through
+Deck before account switching can identify it. Never infer that identity from its title,
+cwd, the newest transcript or a remembered launch command.
+The journal retains the canonical `cli resume <id> --acc <account>` command. At execution,
+Codex resumes use `cli <account> resume <id> --no-daemon` followed by the log override: CLI Manager's
+history-resume branch discards forwarded flags and can auto-select another account. Its
+explicit-account branch preserves both. GUI main also normalizes the old form when an
+already-running terminal service returns it with a log override, so updating the GUI
+does not require terminating that service's live sessions.
+On Linux, Codex handoff also verifies the PID generation, tty, session and process group
+in GUI main immediately before signalling that captured group. It waits for the old process
+and its kernel writer lock to disappear, even if the shell returns earlier. For CLI Manager
+profiles, a target account's existing writer blocks the handoff before the current process
+is stopped. The renderer reports success only after the replacement exposes the exact
+session and selected account.
+Handoff command preparation stays in GUI main without updating daemon recovery metadata;
+the verified replacement records the new account. A refused switch keeps the old metadata.
+Codex identity comes from the TUI's own acquired writer locks or writable interactive rollout;
+an open read-only transcript and a descendant shared daemon cannot establish pane identity.
+A pane-local log can diagnose a failed resume from the current invocation, but never supplies
+a resume identity. Shared daemons can keep several conversations loaded after their clients
+exit; unsubscribing is not proof of release. Deck neither kills those servers nor removes their
+lock files to force a handoff. A blocked resume must be released in the owning app first.
+Every header keeps Close pane visible, including unfocused panes (DL-32.8); split and
+Focus expand live on the stage toolbar. Linux `pty_info` carries the account read from
+the foreground agent's own profile environment, so automatic account selection is visible
+before a conversation appears in Session History. This inspection runs in GUI main and
+also works when reattaching to an older terminal service. Claude's own model/effort picker is still reachable with
 its default Meta+P inside the terminal. The experimental Codex App Server bridge
 was removed when the owner narrowed the scope to Claude Code.
 
-[`electron/pty/manager.ts`](../../electron/pty/manager.ts) spawns and owns every PTY.
-Ids are process-local integers from 1, never reused.
+[`electron/pty/manager.ts`](../../electron/pty/manager.ts) spawns and owns PTYs. On Linux
+it runs inside a detached `persistent-daemon` process; GUI main keeps window ownership routes
+through `PersistentPtyManager`. Other platforms keep the manager in GUI main. Integer pane ids
+are unique within a daemon lifetime. Persistent references pair that id with a random daemon
+epoch, preventing a stale journal from attaching to a different shell after reboot.
+
+The Linux service uses a private Unix socket and a headless xterm screen with the same grapheme
+width rules as the renderer. Attach pauses delivery, drains parsing, serializes the screen at
+its original geometry, then releases subsequent output only after the renderer mounts the pane.
+Snapshots append mouse encoding explicitly: xterm's serializer retains mouse tracking but omits
+SGR/SGR-pixel encoding, which otherwise turns restored wheel events into ignored binary reports.
+The client repairs unversioned Codex snapshots from older live services only when no explicit
+encoding is present; those services must remain running to preserve their PTYs.
+Closing the UI releases subscriptions and preserves PTYs; explicit terminal/tab close still
+terminates them, including AGY descendants that created another POSIX session while retaining
+the pane's tty. The UI close guard still protects unsaved files.
+
+The service persists exact agent/session/account/cwd metadata separately from the layout journal,
+including while the UI is disconnected. Codex launches from Deck get `--no-daemon` and a pane-local `log_dir`
+override: the CLI then owns its rollout instead of delegating identity to the shared
+app-server. Only open interactive rollouts or unambiguous writer locks establish resume identity;
+terminal titles never do. Per-pane logs are truncated above 2 MiB. Manual launches that delegate
+to a shared app-server may have no provable identity and cannot be cold-resumed automatically.
 
 - **Every pane command validates ownership through the coordinator first.** `write_pty`,
   `resize_pty` and `kill_pty` call `assertOwner(paneId, windowLabel)`; a pane routed to
@@ -85,12 +147,29 @@ Ids are process-local integers from 1, never reused.
   Expand gives the active pane at least 65% along its path, ratios clamp to 15–85%, zoom is an
   overlay that a structural rebuild drops first, and hit-testing goes through the engine so
   no consumer queries `.pane-slot` itself.
+- Pinned terminals retain their original `TerminalManager` and PTY ownership. The tab's
+  serialized tree still includes them; its display tree collapses their leaves, translating
+  visible divider paths back to the original tree on resize. A window-level layout mounts
+  the same pane elements around the selected workspace. Hiding their owner suspends only
+  unpinned renderers; keyboard actions follow the focused pin without selecting its tab.
+  The same header drag controller reorders pinned leaves or swaps them with the platform
+  modifier. Per-pane journal placements retain split paths relative to the shared workspace,
+  so nested arrangements restore even when pane ids or tab restore order change; older
+  edge/order/ratio placements still restore. Unpin
+  returns to the owner; explicit owner-tab close includes its pins in the existing guard.
+  Selecting a folder with only pinned panes collapses the ordinary workspace in the display
+  tree; its hidden containers and full serialized tree stay intact. Selecting a regular
+  folder restores that workspace before fitting and focusing its terminals. The canvas slide
+  is skipped while pins exist so switching folders cannot move them.
 - **Pane** ([`pane.ts`](../../src/terminal/pane.ts)): xterm with fit, search, serialize,
   unicode-graphemes and WebGL addons. WebGL is scoped to the tab on screen: a pane mounted
   into a hidden tab never opens a context, [`hide()`](../../src/terminal/terminal-manager.ts)
   releases the ones it has, and `show()` builds them back before it fits. `display: none`
   frees none of this on its own — a WebGL drawing buffer belongs to the GL context, not the
-  compositor, so it survives at full pane size.
+  compositor, so it survives at full pane size. The hidden-pane render guard covers
+  blur, focus, queued frames and the DOM fallback's direct resize repaint. It checks the
+  inline display state before IntersectionObserver catches up, retaining xterm's redraw
+  flags for resume. Otherwise a tab switch measures every glyph at zero width repeatedly.
 
   Cost is paid at ACTIVATION, not at first paint: `WebglRenderer`'s constructor runs
   `_initializeWebGLState()` → `handleCharSizeChanged()`, which sizes the canvas to the whole
@@ -346,6 +425,11 @@ opencode reporting port, its server cannot provide a contract session identity f
   wherever it lands, as before. On Windows it needs a surface (document, browser tab or
   Board) on the stage, because bare Ctrl+S is terminal flow control and must still reach
   the PTY.
+- **Clipboard images use Electron's native clipboard.** Paste saves a private PNG under
+  `userData/clipboard-images` and passes its quoted path through xterm's bracketed-paste
+  entry point; AGY receives an `@` file reference. It does not submit the draft. Keep the
+  file across UI restarts because a detached agent can still reference it. Other hosts
+  retain text-only paste.
 - **The menu is generated on Tauri and derived at runtime on Electron.**
   `scripts/generate-menu.ts` writes `src-tauri/src/menu_registry.rs`; `electron/menu.ts`
   imports the registry directly and builds the native menu on macOS only, installing

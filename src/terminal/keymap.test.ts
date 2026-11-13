@@ -281,9 +281,12 @@ describe("matchBinding", () => {
 
   // The dock's other two chords, added 2026-08-19 so every control in its
   // header can print one (DL-23.1). Same shape as the ⌘⇧U pair above.
-  it("matches Cmd+B as toggle-sidebar, and leaves the explorer's Cmd+Shift+B alone", () => {
+  it("matches Cmd+B as toggle-sidebar, and ignores the retired explorer shortcut", () => {
     expect(matchBinding(keyEvent("b", { metaKey: true }))).toBe("toggle-sidebar");
-    expect(matchBinding(keyEvent("b", { metaKey: true, shiftKey: true }))).toBe("toggle-explorer");
+    expect(matchBinding(keyEvent("b", { metaKey: true, shiftKey: true }))).toBeNull();
+    expect(
+      matchBinding(keyEvent("b", { ctrlKey: true, shiftKey: true }), WINDOWS_KEYMAP),
+    ).toBeNull();
     expect(matchBinding(keyEvent("b"))).toBeNull();
   });
 

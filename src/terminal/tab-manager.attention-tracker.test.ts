@@ -428,33 +428,41 @@ describe("createTabManager attention tracker", () => {
       }
     });
 
-    it("carries the Codex pty-info identity into PaneView without marking a run", async () => {
-      vi.useFakeTimers();
-      const thread = "01900000-0000-7000-8000-000000000001";
-      const infos = new Map<number, PaneProcessInfo>([
-        [
-          1,
-          {
-            ...processInfo(1, "/repo", "codex", "agent", "codex"),
-            processId: 42,
-            codexSessionId: thread,
-          },
-        ],
-      ]);
-      const { tm } = setupControllable(infos);
-      try {
-        await tm.openFromPreset({ type: "leaf" }, ["/repo"], { workspacePath: "/repo" });
-        await tm.init();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(tabViews.value[0].panes?.[0]).toMatchObject({ sessionId: thread, hasRun: false });
-        infos.set(1, { ...infos.get(1)!, processId: 43, codexSessionId: null });
-        await vi.advanceTimersByTimeAsync(2000);
-        expect(tabViews.value[0].panes?.[0].sessionId).toBeNull();
-      } finally {
-        tm.dispose();
-        vi.useRealTimers();
-      }
-    });
+    it.each(["codex", "agy"])(
+      "carries the %s pty-info identity into PaneView without marking a run",
+      async (agent) => {
+        vi.useFakeTimers();
+        const thread = "01900000-0000-7000-8000-000000000001";
+        const infos = new Map<number, PaneProcessInfo>([
+          [
+            1,
+            {
+              ...processInfo(1, "/repo", agent, "agent", agent),
+              processId: 42,
+              [agent === "codex" ? "codexSessionId" : "agySessionId"]: thread,
+            },
+          ],
+        ]);
+        const { tm } = setupControllable(infos);
+        try {
+          await tm.openFromPreset({ type: "leaf" }, ["/repo"], { workspacePath: "/repo" });
+          await tm.init();
+          await vi.advanceTimersByTimeAsync(0);
+          expect(tabViews.value[0].panes?.[0]).toMatchObject({ sessionId: thread, hasRun: false });
+          infos.set(1, {
+            ...infos.get(1)!,
+            processId: 43,
+            codexSessionId: null,
+            agySessionId: null,
+          });
+          await vi.advanceTimersByTimeAsync(2000);
+          expect(tabViews.value[0].panes?.[0].sessionId).toBeNull();
+        } finally {
+          tm.dispose();
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("keeps startup idle without an identity, then detects the first pasted prompt", async () => {
       vi.useFakeTimers();

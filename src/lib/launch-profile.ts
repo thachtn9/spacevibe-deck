@@ -25,7 +25,7 @@
  * layout (`src/lib/preset-schema.ts`) — even though the surface says Presets.
  */
 
-import { agentBinary } from "./agent-catalog";
+import { agentBinary, BUILTIN_AGENTS } from "./agent-catalog";
 
 export const LAUNCH_PROFILE_ID_PREFIX = "lp:";
 
@@ -103,7 +103,8 @@ export function isRuntimeValue(value: unknown): value is string {
  * profile cannot then claim one agent while typing another's binary.
  */
 export function commandAgentId(command: string): string {
-  return agentBinary(command);
+  const binary = agentBinary(command);
+  return BUILTIN_AGENTS.find((agent) => agent.binary === binary)?.id ?? binary;
 }
 
 /** The flags a command carries, or "" — everything after the binary. */

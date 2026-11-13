@@ -45,7 +45,12 @@ async function fixture() {
     'import { choice } from "../src/settings/choice"; export const result = choice;',
   );
   put("electron/preload.ts", "export const preload = 1;");
+  put("electron/code-viewer-helper.ts", "export const viewer = 1;");
   put("electron/browser-preload.ts", "export const browser = 1;");
+  put("electron/web-review-page-preload.ts", "export const review = 1;");
+  put("electron/pty/persistent-daemon.ts", "export const daemon = 1;");
+  put("electron/desktop-agents/entry.ts", "export const widget = 1;");
+  put("electron/desktop-agents/preload.ts", "export const widgetPreload = 1;");
   const events: Array<{ ok: boolean; changed: boolean; durationMs: number }> = [];
   let invalidated = false;
   const watcher = watchMain({
@@ -94,6 +99,8 @@ describe("incremental Electron development compiler", () => {
     await expect.poll(() => f.output("src/new-domain/value.cjs")).toContain("= 4");
     f.put("electron/browser-preload.ts", "export const browser = 2;");
     await expect.poll(() => f.output("electron/browser-preload.cjs")).toContain("= 2");
+    f.put("electron/code-viewer-helper.ts", "export const viewer = 2;");
+    await expect.poll(() => f.output("electron/code-viewer-helper.cjs")).toContain("= 2");
   }, 15_000);
 
   it("leaves the last working output intact on errors and recovers after a fix", async () => {

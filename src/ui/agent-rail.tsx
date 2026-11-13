@@ -10,17 +10,19 @@ import {
   repositoryScans,
 } from "../repositories/repositories-store";
 import { paneTails } from "../terminal/session-tail-store";
+import { paneSessionTitles } from "../terminal/session-title-store";
 import type { FileSurfaceController } from "../files/file-surface-controller";
 import { workspacesData } from "../open-board/workspaces-store";
 import { settings, updateSettings } from "../settings/settings-store";
 import { createRailClusterDragController } from "./rail-cluster-drag";
 import { pinAt, sameRailOrder } from "./rail-order";
 import { buildAgentRail, type RailStreamGroup } from "./agent-rail-model";
+import { buildRailFolderTree } from "./agent-rail-tree";
 import { sessionTitlesFor, untitledSessionIds } from "./agent-rail-card-model";
 import { requestSessionTitles, sessionEntries } from "../sessions/sessions-store";
 import { focusCheckout, WorktreeCard } from "./worktree-card";
 import { needsUser } from "./worktree-card-row";
-import type { CardActions } from "./worktree-card-menus";
+import { CardActionsMenu, type CardActions } from "./worktree-card-menus";
 import { RepositoryRail } from "./repository-rail";
 import { SidebarNewButton } from "./sidebar-toggle";
 import type { NewPaneDropDeps } from "./new-pane-drag";
@@ -144,8 +146,8 @@ export interface AgentRailProps {
    */
   readonly collapsed?: boolean;
   /**
-   * Content-sized usage summary below the project scrollport. The Usage feature
-   * owns its data and navigation; the rail only places the supplied surface.
+   * Independent quota region between the folder scrollport and the footer.
+   * The quota feature owns its data and navigation; the rail only places it.
    */
   usageSummary?: ComponentChildren;
   /**
@@ -162,6 +164,9 @@ export interface AgentRailProps {
 }
 
 function WorktreeCardRail(props: AgentRailProps) {
+  const folderMenu = useSignal<{ group: RailStreamGroup; path: string; rect: DOMRect } | null>(
+    null,
+  );
   const tabs = tabViews.value;
   // Which labelled project groups are folded. A new Set each time rather than
   // a mutated one (C1), so the signal actually notifies.
@@ -183,9 +188,8 @@ function WorktreeCardRail(props: AgentRailProps) {
     // Do not surface `paneModels` here: its pane→session pairing is ranked by
     // cwd/mtime and then pinned, not causally bound to the pane. Gallery/model
     // callers may still inject trusted model facts directly into the pure view.
-    // DL-27.28: an unnamed row's first line is its session's first prompt,
-    // joined on the contract-layer session id only.
-    titles: sessionTitlesFor(tabs, sessionEntries.value),
+    // Exact session titles, with a pane-local Codex conversation title when available.
+    titles: sessionTitlesFor(tabs, sessionEntries.value, paneSessionTitles.value),
     // The order the user dragged these projects into (DL-27.20). App-level,
     // so a drag in one window reorders the rail in every window.
     railOrder: settings.value.railOrder,
@@ -197,7 +201,12 @@ function WorktreeCardRail(props: AgentRailProps) {
   // controller re-created on every render would be disposed mid-drag, since a
   // rail row re-renders whenever an agent says something — so the list it
   // reorders has to reach it through a ref rather than a closure.
-  const streamRef = useRef<readonly RailStreamGroup[]>(view.stream);
+  const folderTree = buildRailFolderTree(view.stream, repositoryScans.value);
+  const visibleFolders = folderTree.filter((node) =>
+    node.ancestors.every((key) => !collapsedGroupKeys.value.has(key)),
+  );
+  const visibleStream = visibleFolders.map((node) => node.group);
+  const streamRef = useRef<readonly RailStreamGroup[]>(visibleStream);
   // A LAYOUT effect, not a passive one, and the distinction is load-bearing: a
   // drop resolves its source index against the live DOM, then splices this
   // array. A passive effect flushes after paint, so a rail that re-rendered
@@ -207,7 +216,7 @@ function WorktreeCardRail(props: AgentRailProps) {
   // dispatch the next event, so the two can never disagree. Not written during
   // render either: a ref is not render state.
   useLayoutEffect(() => {
-    streamRef.current = view.stream;
+    streamRef.current = visibleStream;
   });
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -309,12 +318,10 @@ function WorktreeCardRail(props: AgentRailProps) {
       {/* DL-27.14 (amended 2026-10-08): the create row stands above the
           scrolling list, always visible. */}
       {create("row")}
-      {/* The scrolling half: the rows. The footer and the banner below stay
-          pinned to the bottom of the column, which is the split `.wsbar__list`
-          drew before this rail replaced it. */}
+      {/* Folder scrolling stays independent of the lower quota region. */}
       <div class="asr-rail__list" ref={listRef}>
         <section class="asr-stream" aria-label="Open agents">
-          {view.stream.map((group) => {
+          {visibleFolders.map(({ group, ancestors, hasChildren }) => {
             const collapsed = collapsedGroupKeys.value.has(group.key);
             const iconPath =
               group.worktrees[0]?.repositoryPath ?? group.worktrees[0]?.path ?? group.path;
@@ -373,6 +380,9 @@ function WorktreeCardRail(props: AgentRailProps) {
                 // (DL-27.20). Written on the block rather than on the header
                 // because the whole block is what moves.
                 data-order-key={group.orderKey}
+                data-folder-depth={ancestors.length}
+                data-parent-key={ancestors.at(-1)}
+                style={{ "--asr-folder-depth": ancestors.length }}
                 data-labelled={group.labelled}
                 data-collapsed={collapsed}
               >
@@ -393,8 +403,22 @@ function WorktreeCardRail(props: AgentRailProps) {
                      collapse button shares the surface — below the 5px
                      threshold its `click` fires untouched. The small close
                      beside it never starts a drag. */
-                  <div class="asr-cluster__head">
-                    {live ? (
+                  <div
+                    class="asr-cluster__head"
+                    data-quota-folder={iconPath}
+                    onContextMenu={(event) => {
+                      const path = group.path ?? iconPath;
+                      if (!props.cardActions || !path) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      folderMenu.value = {
+                        group,
+                        path,
+                        rect: event.currentTarget.getBoundingClientRect(),
+                      };
+                    }}
+                  >
+                    {live || hasChildren ? (
                       <button
                         type="button"
                         class="asr-cluster__toggle"
@@ -425,6 +449,16 @@ function WorktreeCardRail(props: AgentRailProps) {
                             <DeckIcon icon={CaretRight} size={CHROME_ICON} />
                           </span>
                         </span>
+                      </button>
+                    ) : props.cardActions?.onOpenAgentLauncher !== undefined ? (
+                      <button
+                        type="button"
+                        class="asr-cluster__still"
+                        aria-label={`New agent in ${group.project}`}
+                        onClick={() => props.cardActions?.onOpenAgentLauncher?.(iconPath)}
+                      >
+                        <WorkspaceIcon key={iconPath} path={iconPath} />
+                        <span class="asr-cluster__name">{group.project}</span>
                       </button>
                     ) : (
                       /* A REMEMBERED project (owner, 2026-08-20): nothing is
@@ -520,8 +554,26 @@ function WorktreeCardRail(props: AgentRailProps) {
 
       {/* DL-28.1 (amended 2026-10-07): the tools row, then the usage summary,
           which closes the rail. */}
-      {props.footer}
+      {folderMenu.value && props.cardActions && (
+        <CardActionsMenu
+          subject={{
+            project: folderMenu.value.group.project,
+            path: folderMenu.value.path,
+            repositoryPath: folderMenu.value.path,
+            branch: null,
+            label: folderMenu.value.group.project,
+            labelled: false,
+          }}
+          actions={props.cardActions}
+          rect={folderMenu.value.rect}
+          trigger={null}
+          onClose={() => {
+            folderMenu.value = null;
+          }}
+        />
+      )}
       {props.usageSummary}
+      {props.footer}
     </nav>
   );
 }

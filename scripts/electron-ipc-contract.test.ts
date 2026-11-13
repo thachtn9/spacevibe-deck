@@ -259,21 +259,18 @@ describe("Electron IPC contract", () => {
     }
   });
 
-  it("pty_kill_foreground carries the flat { id } payload on both sides", () => {
-    // The Agent Board's Stop (spec §5.6, §11.6), pinned the way
-    // `create_directory` above is: proof this generic scanner actually reaches
-    // the new channel rather than passing vacuously because it found none. The
-    // payload is one id and nothing else — main resolves the foreground process
-    // GROUP itself, because a pgid does not cross IPC.
+  it("pty_kill_foreground carries flat optional account-handoff guards on both sides", () => {
+    // Ordinary Stop leaves the guards undefined. Account handoff supplies the
+    // observed identity; main verifies it and resolves the process group itself.
     const sites = callSites.filter((site) => site.channel === "pty_kill_foreground");
     expect(sites.length).toBeGreaterThan(0);
     for (const site of sites) {
-      expect(site.keys).toEqual(["id"]);
+      expect(site.keys).toEqual(["id", "processId", "sessionId", "accountId"]);
     }
     const killHandlers = handlers.filter((handler) => handler.channel === "pty_kill_foreground");
     expect(killHandlers.length).toBeGreaterThan(0);
     for (const handler of killHandlers) {
-      expect(handler.required).toEqual(["id"]);
+      expect(handler.required).toEqual(["id", "processId", "sessionId", "accountId"]);
     }
   });
 

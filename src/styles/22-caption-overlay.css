@@ -46,7 +46,8 @@
    instead (below) — padding here would be a dead gap beside it. `.stage--strip`
    and `.stage--dock` ride the stage element, which `App` keeps current; the
    shell's own `window--sidebar` class is not re-applied after a layout change. */
-.window--caption-overlay .stage--strip:not(.stage--dock) .stage__strip {
+.window--caption-overlay .stage--strip:not(.stage--dock) .stage__strip,
+.window--caption-overlay .stage--strip.stage--dock-tools .stage__strip {
   padding-right: calc(var(--frame-controls-w) + 8px);
 }
 

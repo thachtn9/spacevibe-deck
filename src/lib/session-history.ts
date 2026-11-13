@@ -5,14 +5,15 @@
  * no `electron/` on its path.
  */
 
-export type SessionAgent = "claude" | "codex";
+export type SessionAgent = "claude" | "codex" | "agy";
 
-export const SESSION_AGENTS: readonly SessionAgent[] = Object.freeze(["claude", "codex"]);
+export const SESSION_AGENTS: readonly SessionAgent[] = Object.freeze(["claude", "codex", "agy"]);
 
 /** Display name per agent — sentence case naming a product (DL-4.3). */
 export const SESSION_AGENT_LABELS: Readonly<Record<SessionAgent, string>> = Object.freeze({
   claude: "Claude Code",
   codex: "Codex",
+  agy: "AGY",
 });
 
 export interface SessionEntry {
@@ -22,11 +23,17 @@ export interface SessionEntry {
   readonly lastActivityMs: number;
   readonly title: string | null;
   readonly sourcePath: string;
+  readonly manager?: {
+    readonly account: string;
+    readonly isClient: boolean;
+    readonly workspaceExists: boolean;
+    readonly running: boolean;
+  };
 }
 
 export interface SessionsSnapshot {
   readonly entries: readonly SessionEntry[];
-  readonly totals: Readonly<Record<SessionAgent, number>>;
+  readonly totals: Readonly<Record<"claude" | "codex", number> & { agy?: number }>;
   readonly limit: number;
 }
 
@@ -67,7 +74,7 @@ export function asSessionsSnapshot(raw: unknown): SessionsSnapshot | null {
     // own (see `resume-session.ts`'s guard, which closes the same hole from
     // the other side).
     if (
-      (entry.agent !== "claude" && entry.agent !== "codex") ||
+      (entry.agent !== "claude" && entry.agent !== "codex" && entry.agent !== "agy") ||
       typeof entry.sessionId !== "string" ||
       entry.sessionId === "" ||
       typeof entry.cwd !== "string" ||
@@ -79,6 +86,17 @@ export function asSessionsSnapshot(raw: unknown): SessionsSnapshot | null {
     ) {
       continue;
     }
+    const manager = entry.manager as Record<string, unknown> | undefined;
+    if (
+      manager !== undefined &&
+      (manager === null ||
+        typeof manager !== "object" ||
+        typeof manager.account !== "string" ||
+        typeof manager.isClient !== "boolean" ||
+        typeof manager.workspaceExists !== "boolean" ||
+        typeof manager.running !== "boolean")
+    )
+      continue;
     entries.push({
       agent: entry.agent,
       sessionId: entry.sessionId,
@@ -86,6 +104,16 @@ export function asSessionsSnapshot(raw: unknown): SessionsSnapshot | null {
       lastActivityMs: entry.lastActivityMs,
       title: typeof entry.title === "string" ? entry.title : null,
       sourcePath: entry.sourcePath,
+      ...(manager
+        ? {
+            manager: {
+              account: manager.account as string,
+              isClient: manager.isClient as boolean,
+              workspaceExists: manager.workspaceExists as boolean,
+              running: manager.running as boolean,
+            },
+          }
+        : {}),
     });
   }
   const counts = totals as Record<string, unknown>;
@@ -94,6 +122,7 @@ export function asSessionsSnapshot(raw: unknown): SessionsSnapshot | null {
     totals: {
       claude: typeof counts.claude === "number" ? counts.claude : 0,
       codex: typeof counts.codex === "number" ? counts.codex : 0,
+      ...(typeof counts.agy === "number" ? { agy: counts.agy } : {}),
     },
     limit: typeof node.limit === "number" ? node.limit : SESSIONS_DEFAULT_LIMIT,
   };

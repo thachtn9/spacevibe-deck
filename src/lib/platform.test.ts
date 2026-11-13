@@ -13,7 +13,11 @@ describe("desktop environment", () => {
     resetDesktopEnvironmentForTests();
   });
 
-  it("accepts validated macOS, Windows, and unsupported values", () => {
+  it("accepts validated macOS, Windows, Linux, and unsupported values", () => {
+    expect(parseDesktopEnvironment({ platform: "linux", homeDir: "/home/dev" })).toEqual({
+      platform: "linux",
+      homeDir: "/home/dev",
+    });
     expect(
       parseDesktopEnvironment({
         platform: "macos",
@@ -36,8 +40,11 @@ describe("desktop environment", () => {
   });
 
   it("rejects unknown platforms and invalid home directories", () => {
-    expect(() => parseDesktopEnvironment({ platform: "linux", homeDir: "/home/dev" })).toThrow(
+    expect(() => parseDesktopEnvironment({ platform: "freebsd", homeDir: "/home/dev" })).toThrow(
       "platform",
+    );
+    expect(() => parseDesktopEnvironment({ platform: "linux", homeDir: "home/dev" })).toThrow(
+      "absolute",
     );
     expect(() => parseDesktopEnvironment({ platform: "macos", homeDir: "Users/dev" })).toThrow(
       "absolute",

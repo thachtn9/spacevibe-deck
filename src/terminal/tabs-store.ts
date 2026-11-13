@@ -22,6 +22,7 @@ export type { AgentAttentionSummary } from "./agent-attention";
  * that renders rows, not to the projection that reports facts.
  */
 export interface PaneView {
+  readonly pinned?: boolean;
   /** PTY/pane id — the coordinate `TabManager.activateForAttention` takes. */
   readonly paneId: number;
   /**
@@ -34,6 +35,10 @@ export interface PaneView {
    * the end is acknowledged, exactly when the tracker's phase leaves "exited".
    */
   readonly agent: PaneAgent | null;
+  /** Account explicitly selected by the pane launch command, when known. */
+  readonly account?: string | null;
+  /** The account was read from the current process, rather than its launch command. */
+  readonly accountIsLive?: boolean;
   /** Latched attention, straight from the tracker snapshot. */
   readonly attention: AttentionKind;
   /** Live work signal, straight from the tracker snapshot. */

@@ -36,6 +36,14 @@ interface SessionRowProps {
  * would make that reason unreachable by keyboard.
  */
 export function SessionRow({ entry, dead, homeDir, onResume }: SessionRowProps) {
+  const unavailable = entry.manager?.isClient
+    ? "Session belongs to another machine"
+    : entry.manager?.workspaceExists === false
+      ? "Folder is unavailable"
+      : dead
+        ? "folder is gone"
+        : null;
+  dead = unavailable !== null;
   const reasonId = dead ? `session-gone-${entry.sessionId}` : undefined;
   const name = entry.title ?? entry.sessionId;
   return (
@@ -50,19 +58,24 @@ export function SessionRow({ entry, dead, homeDir, onResume }: SessionRowProps) 
           <span class="session-row__title">{name}</span>
           <span class="session-row__meta">
             <span class="session-row__agent">{SESSION_AGENT_LABELS[entry.agent]}</span>
-            <span class="session-row__path">
+            {entry.manager && (
+              <span class="session-row__account">
+                {entry.manager.account} · {entry.manager.running ? "Running" : "Stopped"}
+              </span>
+            )}
+            <span class="session-row__path" title={entry.cwd}>
               {homeDir === "" ? entry.cwd : tildify(entry.cwd, homeDir)}
             </span>
             <span class="session-row__time">
               {formatRelativeTime(entry.lastActivityMs, Date.now())}
             </span>
           </span>
+          {dead ? (
+            <span id={reasonId} class="session-row__gone">
+              {unavailable}
+            </span>
+          ) : null}
         </span>
-        {dead ? (
-          <span id={reasonId} class="session-row__gone">
-            folder is gone
-          </span>
-        ) : null}
         {/* The accessible name carries the session too: a list of rows whose
             controls all announce the bare word "Resume" tells a screen-reader
             user which action they are on and never which session. The visible
@@ -73,6 +86,7 @@ export function SessionRow({ entry, dead, homeDir, onResume }: SessionRowProps) 
           class="session-row__resume"
           aria-label={`Resume ${name}`}
           aria-describedby={reasonId}
+          aria-disabled={dead}
           onClick={() => {
             if (!dead) {
               onResume(entry);

@@ -6,12 +6,14 @@ import { ensureRepositoriesScanned } from "../repositories/repositories-store";
 
 /**
  * The create row's `Folder` (DL-27.14, amended 2026-10-08): pick a folder, check it
- * is still there, and put it on the rail as a remembered project. Nothing launches.
+ * is still there, and open a terminal before remembering it on the rail.
  *
  * Resolves to a notice for the rail to print, or `null` when nothing needs saying
  * (added, or the picker was cancelled).
  */
-export async function addFolderToRail(): Promise<string | null> {
+export async function addFolderToRail(
+  openTerminal?: (path: string) => Promise<boolean>,
+): Promise<string | null> {
   let picked: string | null;
   try {
     picked = await open({ directory: true, multiple: false });
@@ -32,6 +34,14 @@ export async function addFolderToRail(): Promise<string | null> {
     });
   if (gone) {
     return `${workspaceLabel(picked)} is missing — pick another folder`;
+  }
+  if (openTerminal) {
+    try {
+      if (!(await openTerminal(picked)))
+        return "Couldn't open a terminal in this folder — try again";
+    } catch {
+      return "Couldn't open a terminal in this folder — try again";
+    }
   }
   rememberOnRail(picked);
   return null;

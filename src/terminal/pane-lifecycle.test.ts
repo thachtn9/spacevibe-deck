@@ -56,6 +56,40 @@ function fakePane(id: number, events: PaneEvents): Pane & { focusCalls: number }
   return pane;
 }
 
+it("discards mouse and keyboard input during an account handoff instead of replaying it", async () => {
+  const pty = createMemoryPtyClient();
+  let blocked = false;
+  let finish!: () => void;
+  const write = vi.spyOn(pty, "writePty").mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const life = createPaneLifecycle({
+    pty,
+    getSettings: () => DEFAULT_SETTINGS,
+    inputBlocked: () => blocked,
+    onWriteWhileExited() {},
+    onFocus() {},
+    createPane: (id, _settings, events) => fakePane(id, events),
+  });
+  const pane = await life.spawnPane();
+  const first = life.enqueueWrite(pane.id, "existing agent input");
+  await vi.waitFor(() => expect(write).toHaveBeenCalledOnce());
+  const queuedMouse = life.enqueueWrite(pane.id, "\x1b[35;51;1M");
+  blocked = true;
+  await expect(life.enqueueWrite(pane.id, "must not reach the shell\r")).resolves.toBe(false);
+  finish();
+  await expect(first).resolves.toBe(true);
+  await expect(queuedMouse).resolves.toBe(false);
+  await life.drainWrites(pane.id);
+  blocked = false;
+  await expect(life.enqueueWrite(pane.id, "fresh input")).resolves.toBe(true);
+  expect(write.mock.calls.map((call) => call[1])).toEqual(["existing agent input", "fresh input"]);
+  life.killAll();
+});
+
 describe("createPaneLifecycle respawn", () => {
   it("does not focus the fresh pane (caller focuses after render/mount)", async () => {
     const pty = createMemoryPtyClient({ nextId: 1 });
@@ -456,4 +490,30 @@ it("records genuine input only after its queued PTY write succeeds", async () =>
   expect(await life.paneEvents.onData(pane.id, "\r", true)).toBe(false);
   expect(onUserInput).toHaveBeenCalledTimes(1);
   life.killAll();
+});
+
+describe("persistent pane lifecycle", () => {
+  it("closes a restored terminal when its tab is explicitly closed", async () => {
+    const pty = createMemoryPtyClient();
+    const kill = vi.spyOn(pty, "killPty").mockResolvedValue();
+    const spawn = vi.spyOn(pty, "spawnShell");
+    const life = createPaneLifecycle({
+      pty,
+      getSettings: () => DEFAULT_SETTINGS as Settings,
+      onWriteWhileExited() {},
+      onFocus() {},
+      createPane: (id, _settings, events) => fakePane(id, events),
+    });
+    await life.spawnPane("/w", {
+      id: 42,
+      reference: "11111111-1111-4111-8111-111111111111:42",
+      cols: 80,
+      rows: 24,
+      screen: "old screen",
+      metadata: { agent: "codex", sessionId: "session", launchCommand: "cli codex1", cwd: "/w" },
+    });
+    expect(spawn).not.toHaveBeenCalled();
+    life.killAll();
+    expect(kill).toHaveBeenCalledWith(42);
+  });
 });

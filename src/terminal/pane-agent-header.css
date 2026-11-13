@@ -95,3 +95,26 @@
   height: 14px;
   display: block;
 }
+
+.pane-agent-header__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 1px;
+}
+
+.pane__remote-control {
+  position: absolute;
+  top: 32px;
+  right: 8px;
+  z-index: 3;
+  padding: 4px 8px;
+  color: var(--fg);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tab);
+  font: inherit;
+  cursor: pointer;
+}
+.pane__remote-control[hidden] {
+  display: none;
+}

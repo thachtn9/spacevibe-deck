@@ -71,7 +71,10 @@ export const NO_KEYBINDING_OVERRIDES: KeybindingOverrides = Object.freeze({
 export const MAX_CHORDS_PER_ACTION = 4;
 
 export function defaultKeymap(platform: string): readonly KeyBinding[] {
-  return platform === "windows" ? WINDOWS_KEYMAP : MACOS_KEYMAP;
+  // Linux joins Windows on the Ctrl-based keymap: the macOS keymap's `meta`
+  // chords would land on the Super key, which is not Deck's primary modifier
+  // anywhere outside macOS.
+  return platform === "windows" || platform === "linux" ? WINDOWS_KEYMAP : MACOS_KEYMAP;
 }
 
 /**
@@ -86,7 +89,7 @@ export function defaultKeymap(platform: string): readonly KeyBinding[] {
  * `keymapForPlatform` has always done.
  */
 export function keymapPlatform(platform: string): KeymapPlatform {
-  return platform === "windows" ? "windows" : "macos";
+  return platform === "windows" || platform === "linux" ? "windows" : "macos";
 }
 
 export function isChord(value: unknown): value is Chord {

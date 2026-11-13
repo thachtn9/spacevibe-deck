@@ -12,8 +12,17 @@ interface RenderServiceView {
   _needsSelectionRefresh: boolean;
   _selectionState: { start: Point; end: Point; columnSelectMode: boolean };
   _renderer: {
-    value?: { handleSelectionChanged(start: Point, end: Point, column: boolean): void };
+    value?: {
+      handleSelectionChanged(start: Point, end: Point, column: boolean): void;
+      handleBlur(): void;
+      handleFocus(): void;
+      renderRows(start: number, end: number): void;
+    };
   };
+  handleBlur(): void;
+  handleFocus(): void;
+  handleResize(cols: number, rows: number): void;
+  _renderRows(start: number, end: number): void;
   handleSelectionChanged(start: Point, end: Point, column: boolean): void;
 }
 
@@ -92,6 +101,47 @@ describe("applyHiddenPaneRenderFix", () => {
       end: [3, 0],
       columnSelectMode: false,
     });
+  });
+
+  it("skips blur, focus and queued frames immediately after hiding, before the observer fires", () => {
+    const term = openTerminal();
+    applyHiddenPaneRenderFix(term);
+    const service = renderServiceOf(term);
+    const renderer = service._renderer.value!;
+    const blur = vi.spyOn(renderer, "handleBlur");
+    const focus = vi.spyOn(renderer, "handleFocus");
+    const rows = vi.spyOn(renderer, "renderRows");
+    const selection = vi.spyOn(renderer, "handleSelectionChanged");
+    service._isPaused = false;
+    term.element!.parentElement!.style.display = "none";
+    service.handleBlur();
+    service.handleFocus();
+    service._renderRows(0, 9);
+    service.handleSelectionChanged([1, 2], [3, 2], false);
+    expect(blur).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    expect(rows).not.toHaveBeenCalled();
+    expect(selection).not.toHaveBeenCalled();
+    expect(service._needsFullRefresh).toBe(true);
+    expect(service._selectionState.start).toEqual([1, 2]);
+    term.element!.parentElement!.style.display = "";
+    service.handleFocus();
+    service._renderRows(0, 9);
+    expect(focus).toHaveBeenCalledOnce();
+    expect(rows).toHaveBeenCalledWith(0, 9);
+    expect(selection).toHaveBeenCalledWith([1, 2], [3, 2], false);
+  });
+
+  it("blocks the DOM renderer's direct resize repaint while hidden", () => {
+    const term = openTerminal();
+    const service = renderServiceOf(term);
+    const rows = vi.spyOn(service._renderer.value!, "renderRows");
+    applyHiddenPaneRenderFix(term);
+    service._isPaused = false;
+    term.element!.parentElement!.style.display = "none";
+    service.handleResize(term.cols, term.rows);
+    expect(rows).not.toHaveBeenCalled();
+    expect(service._needsFullRefresh).toBe(true);
   });
 
   it("leaves a terminal without the expected internals untouched", () => {

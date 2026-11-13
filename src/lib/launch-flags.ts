@@ -142,5 +142,6 @@ export function composeLaunchFlags(
     const choice = flag.options.find((candidate) => candidate.value === values[flag.id]);
     return choice === undefined ? [] : choice.forms[0];
   });
-  return [agentId, ...known, other.trim()].filter((word) => word !== "").join(" ");
+  const binary = ACTIVE_AGENTS.find((agent) => agent.id === agentId)?.binary ?? agentId;
+  return [binary, ...known, other.trim()].filter((word) => word !== "").join(" ");
 }

@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { CODEX_RESTORE_SCAN, listCodexFiles, readCodexRecord } from "../resume/codex";
+import { linuxCodexSession } from "./linux-codex-session";
 
 const LSOF_TIMEOUT_MS = 1_500;
 const LSOF_MAX_BYTES = 4 * 1024 * 1024;
@@ -56,6 +57,12 @@ export async function processCodexSessions(
 ): Promise<Map<number, string>> {
   const uniquePids = [...new Set(pids)].filter((pid) => Number.isSafeInteger(pid) && pid > 0);
   if (platform === "win32" || uniquePids.length === 0) return new Map();
+  if (platform === "linux") {
+    const sessions = await Promise.all(
+      uniquePids.map(async (pid) => [pid, await linuxCodexSession(pid)] as const),
+    );
+    return new Map(sessions.flatMap(([pid, id]) => (id === null ? [] : [[pid, id] as const])));
+  }
   const locks = await readLocks(uniquePids, home, platform);
   const ambiguous = new Set([...locks.values()].filter((ids) => ids.length > 1).flat());
   const interactive = new Set<string>();

@@ -264,6 +264,83 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("AgentRail nested folders", () => {
+  it("nests the already open child when a symlink parent is added after it", async () => {
+    const child = "/data/SCRIPT/app";
+    const parent = "/home/me/data/SCRIPT";
+    configureRepositoryClient({
+      scan: async (path) => ({
+        kind: "plain",
+        reason: "not a repository",
+        canonicalPath: path === parent ? "/data/SCRIPT" : child,
+      }),
+    });
+    tabViews.value = [tab({ key: 1, workspacePath: child, panes: [], agents: [] })];
+    workspacesData.value = {
+      version: WORKSPACES_VERSION,
+      recents: [{ path: child, lastOpenedAt: 1 }],
+    };
+    const select = vi.fn();
+    mount({ onSelectTab: select });
+    await settle();
+    expect(host.querySelector(".asr-cluster")?.getAttribute("data-folder-depth")).toBe("0");
+    act(() => {
+      tabViews.value = [
+        ...tabViews.value,
+        tab({ key: 2, workspacePath: parent, panes: [], agents: [] }),
+      ];
+      workspacesData.value = {
+        version: WORKSPACES_VERSION,
+        recents: [
+          { path: parent, lastOpenedAt: 2 },
+          { path: child, lastOpenedAt: 1 },
+        ],
+      };
+    });
+    await settle();
+    const clusters = [...host.querySelectorAll<HTMLElement>(".asr-cluster")];
+    expect(clusters.map((node) => node.dataset.folderDepth)).toEqual(["0", "1"]);
+    expect(clusters.map((node) => node.querySelector(".asr-cluster__name")?.textContent)).toEqual([
+      "SCRIPT",
+      "app",
+    ]);
+    click(clusters[1].querySelector(".asr-card__hit"));
+    expect(select).toHaveBeenLastCalledWith(0);
+  });
+
+  it("folds child folders with their parent and retains each session's tab target", async () => {
+    configureRepositoryClient({
+      scan: async () => ({ kind: "plain", reason: "not a repository" }),
+    });
+    tabViews.value = [
+      tab({ key: 1, workspacePath: "/data/project", panes: [], agents: [] }),
+      tab({ key: 2, workspacePath: "/data/project/api", panes: [], agents: [] }),
+    ];
+    workspacesData.value = {
+      version: WORKSPACES_VERSION,
+      recents: [
+        { path: "/data/project", lastOpenedAt: 2 },
+        { path: "/data/project/api", lastOpenedAt: 1 },
+      ],
+    };
+    const select = vi.fn();
+    mount({ onSelectTab: select });
+    await settle();
+    const clusters = () => [...host.querySelectorAll<HTMLElement>(".asr-cluster")];
+    expect(clusters().map((el) => el.dataset.folderDepth)).toEqual(["0", "1"]);
+    click(clusters()[1].querySelector(".asr-card__hit"));
+    expect(select).toHaveBeenLastCalledWith(1);
+    click(clusters()[0].querySelector(".asr-cluster__toggle"));
+    expect(clusters()).toHaveLength(1);
+    expect(rows()).toHaveLength(0);
+    click(clusters()[0].querySelector(".asr-cluster__toggle"));
+    expect(clusters()).toHaveLength(2);
+    expect(rows()).toHaveLength(2);
+    click(clusters()[1].querySelector(".asr-card__hit"));
+    expect(select).toHaveBeenLastCalledWith(1);
+  });
+});
+
 describe("AgentRail attention rows", () => {
   it("keeps every agent pane of a checkout under its one card, whatever its state", async () => {
     // The pinned `Needs you` block was removed on 2026-08-16: nothing lifts a
@@ -790,7 +867,7 @@ describe("AgentRail clusters (DL-27.9/DL-27.12)", () => {
 });
 
 describe("AgentRail worktree groups (DL-27.23/DL-27.24, amended by the card)", () => {
-  it("prints a card head for a project with exactly one checkout", async () => {
+  it("shows the Git branch for a project with exactly one checkout", async () => {
     // `/r/side` is in this fixture's workspace history, so the project has two
     // groups by default; a history with only the primary in it is the
     // one-checkout case — and it is still labelled (DL-27.23).
@@ -841,7 +918,9 @@ describe("AgentRail worktree groups (DL-27.23/DL-27.24, amended by the card)", (
     // No `+` on any line (DL-27.26, amended 2026-10-08): the bare checkout's
     // label is the way in, and names the project, the checkout AND its branch.
     expect(host.querySelector(".asr-checkout__add")).toBeNull();
-    const bare = host.querySelectorAll<HTMLElement>(".asr-checkout__focus")[1];
+    const bare = host.querySelector<HTMLElement>(
+      '.asr-checkout[data-primary="false"] .asr-checkout__focus',
+    )!;
     expect(bare.getAttribute("aria-label")).toBe("New agent in main · side");
     click(bare);
     expect(onOpenAgentLauncher).toHaveBeenCalledExactlyOnceWith("/r/side");
@@ -858,7 +937,7 @@ describe("AgentRail worktree groups (DL-27.23/DL-27.24, amended by the card)", (
     expect(branches()).toEqual(["main", "side"]);
   });
 
-  it("tags a folder git does not know `folder`", async () => {
+  it("places plain-folder sessions directly under their project", async () => {
     configureRepositoryClient({
       scan: async () => ({ kind: "plain", reason: "not a git repository" }),
     });
@@ -875,8 +954,8 @@ describe("AgentRail worktree groups (DL-27.23/DL-27.24, amended by the card)", (
     // added folder does not read as a different kind of thing.
     expect(host.querySelectorAll(".asr-checkout")).toHaveLength(1);
     expect(host.querySelector(".asr-cluster__head .asr-cluster__name")?.textContent).toBe("main");
-    expect(branches()).toEqual(["main"]);
-    expect(host.querySelector(".asr-checkout__tag")?.textContent).toBe("folder");
+    expect(branches()).toEqual([]);
+    expect(host.querySelector(".asr-checkout__tag")).toBeNull();
     expect(rows()).toHaveLength(1);
     // No `+` on the line; the checkout's right-click menu has no branch to fork from.
     expect(host.querySelector(".asr-checkout__add")).toBeNull();
@@ -1049,7 +1128,7 @@ describe("AgentRail remembered projects (2026-08-20)", () => {
     expect(rows()).toHaveLength(1);
   });
 
-  it("keeps a remembered project one press from an agent, through its checkout's label", async () => {
+  it("keeps a remembered project one press from an agent, through its project label", async () => {
     // The header carries no `+`, so a remembered project prints its checkouts
     // as rowless label lines and THEIR label is the way back in — `/w/other` is
     // a plain folder, so it reads the same as a checkout with nothing open
@@ -1061,8 +1140,8 @@ describe("AgentRail remembered projects (2026-08-20)", () => {
     expect(host.querySelector(".asr-cluster__add")).toBeNull();
     const heads = host.querySelectorAll<HTMLElement>(".asr-cluster__head");
     const remembered = heads[1].closest<HTMLElement>(".asr-cluster");
-    expect(remembered?.querySelector(".asr-checkout__tag")?.textContent).toBe("folder");
-    const row = remembered?.querySelector<HTMLElement>("button.asr-checkout__focus");
+    expect(remembered?.querySelector(".asr-checkout__line")).toBeNull();
+    const row = remembered?.querySelector<HTMLElement>("button.asr-cluster__still");
     expect(row).not.toBeNull();
     // The header itself is still a still label — no toggle, no live close.
     expect(heads[1].querySelector(".asr-cluster__toggle")).toBeNull();
@@ -1357,6 +1436,8 @@ describe("AgentRail state wording (DL-27.2, amended by the card)", () => {
     const row = rows()[0];
     expect(row.dataset.state).toBe("idle");
     expect(row.querySelector(".asr-card__dot")).toBeNull();
+    expect(row.querySelector(".asr-card__sentence")?.textContent).toBe("");
+    expect(row.textContent).not.toContain("No signal");
   });
 
   it("draws a busy row as the braille spinner on the logo, never the shared working ring", async () => {
@@ -1455,9 +1536,8 @@ describe("AgentRail carried-over jobs", () => {
     expect(host.querySelector(".asr-stream")?.firstElementChild).not.toBeNull();
   });
 
-  // DL-28.1 (amended 2026-10-07): the tools row, then the usage summary, which
-  // closes the rail.
-  it("places the tools row, then the usage summary, outside the project scrollport", async () => {
+  // Independent quota region between the folder scrollport and pinned tools.
+  it("places quota before the pinned tools, outside the project scrollport", async () => {
     mount({
       usageSummary: <section data-testid="recent-activity" />,
       footer: <div data-testid="rail-footer" />,
@@ -1472,9 +1552,9 @@ describe("AgentRail carried-over jobs", () => {
     expect(stream?.parentElement).toBe(list);
     expect(list?.contains(activity)).toBe(false);
     expect(activity?.parentElement).toBe(list?.parentElement);
-    expect(list?.nextElementSibling).toBe(footer);
+    expect(list?.nextElementSibling).toBe(activity);
     expect(list?.contains(footer)).toBe(false);
-    expect(footer?.nextElementSibling).toBe(activity);
+    expect(activity?.nextElementSibling).toBe(footer);
   });
 
   it("adds no rail wrapper when recent activity is omitted", async () => {
@@ -1870,11 +1950,11 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
     launcher.mockClear();
   });
 
-  it("draws Agent last, closing the row outside the list", async () => {
+  it("shows only Folder outside the scrolling list", async () => {
     mount({ cardActions: withLauncher });
     await settle();
 
-    expect(verbs().at(-1)).toBe("Agent");
+    expect(verbs()).toEqual(["Folder"]);
     expect(host.querySelector(".asr-rail__list .rail-create")).toBeNull();
   });
 
@@ -1882,7 +1962,7 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
     mount({ cardActions: withLauncher });
     await settle();
 
-    expect(verbs()).toEqual(["Folder", "Agent"]);
+    expect(verbs()).toEqual(["Folder"]);
   });
 
   it("opens the launch page on the focused checkout", async () => {
@@ -1891,7 +1971,7 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
 
     click(verb("agent"));
 
-    expect(launcher).toHaveBeenCalledExactlyOnceWith("/r/main");
+    expect(launcher).not.toHaveBeenCalled();
   });
 
   it("falls back to the active tab's workspace when no checkout is focused", async () => {
@@ -1902,7 +1982,7 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
 
     click(verb("agent"));
 
-    expect(launcher).toHaveBeenCalledExactlyOnceWith("/r/side");
+    expect(launcher).not.toHaveBeenCalled();
   });
 
   it("opens the board with no workspace at all", async () => {
@@ -1917,7 +1997,7 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
     click(verb("agent"));
 
     expect(launcher).not.toHaveBeenCalled();
-    expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
+    expect(onOpenWorkspace).not.toHaveBeenCalled();
   });
 
   it("disables Agent while a task operation is in flight", async () => {
@@ -1927,7 +2007,7 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
     });
     await settle();
 
-    expect(verb("agent")?.disabled).toBe(true);
+    expect(verb("agent")).toBeNull();
   });
 
   it("starts the drag from Agent and from nothing else", async () => {
@@ -1949,10 +2029,10 @@ describe("AgentRail create row (DL-27.14, amended 2026-10-08)", () => {
     };
 
     drag(verb("agent"));
-    expect(onDragStart).toHaveBeenCalledTimes(1);
+    expect(onDragStart).not.toHaveBeenCalled();
 
     drag(verb("worktree"));
     drag(verb("folder"));
-    expect(onDragStart).toHaveBeenCalledTimes(1);
+    expect(onDragStart).not.toHaveBeenCalled();
   });
 });

@@ -1,16 +1,8 @@
-import {
-  ChatText,
-  ClockCounterClockwise,
-  Gauge,
-  Gear,
-  Globe,
-  SquaresFour,
-  TreeView,
-} from "@phosphor-icons/react";
+import { ChatText, Gauge, Gear, Globe, SquaresFour } from "@phosphor-icons/react";
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { shortcutLabel } from "../lib/shortcut-label";
-import type { ActionId } from "../terminal/action-registry";
+import { RETIRED_ACTIONS, type ActionId } from "../terminal/action-registry";
 import {
   ActionTooltip,
   tooltipTriggerProps,
@@ -21,27 +13,9 @@ import { RailToolsMenu } from "./rail-tools-menu";
 import { isUnavailable, unavailableReason, type ToolbarItem } from "./toolbar/toolbar-item";
 import { toolbarLabel } from "./toolbar/toolbar-label";
 
-/**
- * The rail's tools row (DL §28, restored 2026-10-07 as icons).
- *
- * Every button here is a **shortcut that opens**, and nothing else. It shows no
- * selection state and it never closes what it opened: pressing an already-open
- * surface's icon is a no-op, and putting that surface away is the job of its
- * own close control — the dock's toggle, the browser chip's ✕, a screen's close
- * button, Escape. That is what separates these icons from the toolbar and from
- * the dock's tab row, both of which DO report state (DL-28.5, DL-21.8).
- *
- * Icons, not rows: the rail's own rows now carry a task label and a status
- * line, so the foot reads as chrome beside them. The name and the chord live in
- * a DL-23 tooltip that opens **above** the button (DL-23.4), since the row
- * stands in the window's bottom edge. Top-tab mode and Tauri have no rail —
- * `DeckToolbar` stands the global group up in `More` there.
- *
- * State-free in the strongest sense: the only flag it takes is whether Prompts
- * can run at all, which is availability, not selection.
- */
+/** The left quota toggle and Settings are independent of the right dock. */
 export interface SidebarActionsProps {
-  /** False on a host with no `sessions_list`; the icon is then not built. */
+  /** Retained caller contract; Session history now lives only in the right dock. */
   readonly sessionsAvailable: boolean;
   /** Why Prompts cannot run right now, or null when it can. */
   readonly promptsUnavailable: string | null;
@@ -54,6 +28,7 @@ export interface SidebarActionsProps {
    * icons as a popover (DL-28.6). Electron only, like the row itself.
    */
   readonly collapsed?: boolean;
+  readonly quotaOpen?: boolean;
   onOpenSessions(): void;
   onOpenUsage(): void;
   onOpenExplorer(): void;
@@ -81,14 +56,6 @@ function toolItem(
   };
 }
 
-/**
- * The tools in the owner's order (DL-28.3). Label and chord come from the
- * registry through the same helpers `More` uses, so the row, the collapsed
- * menu and the toolbar cannot say different things. Session history is omitted
- * entirely on a host that cannot answer `sessions_list`, the precedent the
- * dock's tab row follows (DL-19.7): an icon that opens an empty surface is
- * worse than none.
- */
 export function railToolItems(props: SidebarActionsProps): readonly ToolbarItem[] {
   const prompts = toolItem("toggle-prompts", ChatText, props.onOpenPrompts, {
     // DL-23.6: unavailable is not disabled — the control keeps its place in the
@@ -103,15 +70,15 @@ export function railToolItems(props: SidebarActionsProps): readonly ToolbarItem[
     toggles: "dialog",
   });
   return [
-    ...(props.sessionsAvailable
-      ? [toolItem("toggle-sessions", ClockCounterClockwise, props.onOpenSessions)]
-      : []),
-    toolItem("toggle-usage", Gauge, props.onOpenUsage),
-    toolItem("toggle-explorer", TreeView, props.onOpenExplorer),
+    toolItem("toggle-usage", Gauge, props.onOpenUsage, {
+      shortcut: null,
+      toggles: "pressed",
+      state: { kind: props.quotaOpen ? "active" : "idle" },
+    }),
     prompts,
     toolItem("toggle-browser", Globe, props.onOpenBrowser),
     toolItem("toggle-settings", Gear, props.onOpenSettings),
-  ];
+  ].filter((item) => !RETIRED_ACTIONS.has(item.id));
 }
 
 interface ToolButtonProps {
@@ -134,6 +101,7 @@ function ToolButton({ item, tooltipSuppressed }: ToolButtonProps) {
         ref={ref}
         type="button"
         class={`iconbtn sidebar-actions__tool ${reason !== null ? "is-unavailable" : ""}`}
+        aria-pressed={item.toggles === "pressed" ? item.state.kind === "active" : undefined}
         aria-label={item.label}
         aria-haspopup={item.toggles === "dialog" ? "dialog" : undefined}
         aria-disabled={reason !== null ? true : undefined}
@@ -167,8 +135,8 @@ interface OpenToolsMenu {
 }
 
 /**
- * Collapsed, the six icons give way to one grid button at the column's foot
- * (DL-28.6) that opens the same six as rows of a popover. It carries a native
+ * Collapsed, the tools give way to one grid button at the column's foot
+ * (DL-28.6) that opens the same tools as rows of a popover. It carries a native
  * `title` like the column's avatars: a tooltip centred above a 36px column
  * would hang far from its button, and the name is all it would say.
  */
@@ -212,7 +180,7 @@ function CollapsedTools(props: SidebarActionsProps) {
             onClose={close}
           />
         )}
-        {props.promptsOpen ? props.promptPopover : null}
+        {!RETIRED_ACTIONS.has("toggle-prompts") && props.promptsOpen ? props.promptPopover : null}
       </div>
     </nav>
   );
@@ -229,10 +197,14 @@ export function SidebarActions(props: SidebarActionsProps) {
       <div class="sidebar-actions__slot">
         <div class="sidebar-actions__tools">
           {railToolItems(props).map((item) => (
-            <ToolButton key={item.id} item={item} tooltipSuppressed={props.promptsOpen} />
+            <ToolButton
+              key={item.id}
+              item={item}
+              tooltipSuppressed={!RETIRED_ACTIONS.has("toggle-prompts") && props.promptsOpen}
+            />
           ))}
         </div>
-        {props.promptsOpen ? props.promptPopover : null}
+        {!RETIRED_ACTIONS.has("toggle-prompts") && props.promptsOpen ? props.promptPopover : null}
       </div>
     </nav>
   );

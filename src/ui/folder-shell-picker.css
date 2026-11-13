@@ -1,0 +1,74 @@
+.folder-shell-picker {
+  width: min(640px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 20px;
+  font: var(--type-body) var(--ui-font);
+  background: var(--chrome-2);
+  color: var(--text-primary);
+  border: 1px solid var(--seam-divider);
+  border-radius: var(--radius-control);
+}
+.folder-shell-picker h2 {
+  margin: 0 0 12px;
+  font: var(--type-title) var(--ui-font);
+}
+.folder-shell-picker input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--seam-divider);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text-primary);
+  font: inherit;
+}
+.folder-shell-picker input:focus-visible,
+.folder-shell-picker button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.folder-shell-picker footer button {
+  padding: 6px 10px;
+  border: 1px solid var(--seam-divider);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.folder-shell-picker__root {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-shell-picker__results {
+  max-height: min(360px, 50vh);
+  overflow: auto;
+}
+.folder-shell-picker__results button {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font: var(--type-body) var(--ui-font);
+}
+.folder-shell-picker__results button:hover,
+.folder-shell-picker__results button[aria-selected="true"] {
+  background: var(--state-hover-bg);
+}
+.folder-shell-picker footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--text-muted);
+}

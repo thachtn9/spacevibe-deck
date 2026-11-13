@@ -58,6 +58,20 @@ describe("filterSessions", () => {
 });
 
 describe("distinctProjects", () => {
+  it("omits OS temporary folders without hiding similarly named projects", () => {
+    expect(
+      distinctProjects(
+        [
+          "/tmp",
+          "/tmp/deck/test",
+          "/var/tmp/test",
+          "/private/tmp/test",
+          "/work/tmp-tools",
+          "/work/template",
+        ].map((cwd) => entry({ cwd })),
+      ),
+    ).toEqual(["/work/template", "/work/tmp-tools"]);
+  });
   it("lists each cwd once, most recently active first", () => {
     const out = distinctProjects([
       entry({ cwd: "/work/b", lastActivityMs: 10 }),

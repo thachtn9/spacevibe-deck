@@ -28,6 +28,8 @@ export function filterSessions(
 export function distinctProjects(entries: readonly SessionEntry[]): readonly string[] {
   const newest = new Map<string, number>();
   for (const entry of entries) {
+    // Hide OS temporary workspaces from the project picker, retaining their history rows.
+    if (/^\/(?:tmp|var\/tmp|private\/tmp)(?:\/|$)/.test(entry.cwd.replace(/\\/g, "/"))) continue;
     const seen = newest.get(entry.cwd);
     if (seen === undefined || entry.lastActivityMs > seen) {
       newest.set(entry.cwd, entry.lastActivityMs);

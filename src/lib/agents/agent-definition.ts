@@ -33,11 +33,15 @@ export interface AgentInstall {
   readonly macos: InstallCommand | null;
   /** Run by PowerShell: `pwsh` 7, else Windows PowerShell 5.1 — so no `&&` / `||`. */
   readonly windows: InstallCommand | null;
+  /** A verified Linux command; absent entries offer the vendor's download page. */
+  readonly linux?: InstallCommand | null;
 }
 
 export interface BuiltinAgent {
-  /** Also the binary name and the bare command — see `agent-catalog.ts`. */
+  /** Stable identity used for logos, sessions, and process classification. */
   readonly id: string;
+  /** Optional local launcher; defaults to the agent id. */
+  readonly binary?: string;
   readonly label: string;
   /**
    * The command Deck launches this agent with out of the box, flags included.

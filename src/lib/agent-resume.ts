@@ -40,12 +40,24 @@ export interface ResumeRequest {
   readonly notBefore?: number;
 }
 
+/** A lifecycle event read from the exact Codex conversation owned by a live pane. */
+export interface SessionActivity {
+  readonly kind: "working" | "completed" | "interrupted";
+  readonly turnId: string;
+  readonly observedAt: number;
+}
+
 /** Wire mirror of `electron/resume/session-tail.ts`'s `SessionTailAnswer`. */
 export interface SessionTailAnswer {
   readonly id: string;
   readonly tail: string | null;
   /** The model the newest recorded turn ran on, or null when the transcript names none. */
   readonly model: string | null;
+  /** The newest user-authored prompt, when the transcript format exposes it. */
+  readonly task?: string | null;
+  /** Last non-empty line of the newest public assistant message, when it differs from tail. */
+  readonly lastLine?: string | null;
+  readonly activity?: SessionActivity;
 }
 
 /**

@@ -37,12 +37,17 @@ cites it.
   (`sideEffects: false`). A second icon package is not covered.
 - **DL-1.2** Chrome animates only `transform`, `opacity`, `color`, `border-color` and
   `background-color`, for at most 300ms, with no infinite loop and nothing moving while the
-  user is idle. Three scoped exceptions loop, each only while its state exists, each with
+  user is idle. Four scoped exceptions loop, each only while its state exists, each with
   `transform`/`opacity` alone, and each still under reduced motion:
   - the rail's `asked` mark radiates on a 1.8s loop (DL-27.3);
   - a worktree-card row shows a braille spinner while its agent works: ten stacked frames
     shown by `opacity`, 80ms each, an 800ms loop, only under `[data-state="working"]`;
     reduced motion keeps the first frame (DL-27.21);
+  - the Linux desktop agent helper reuses that braille spinner beside `Working`, only while
+    its displayed agent works. With multiple signalled live sessions it shows each for 2s and
+    crossfades the current and next rows over the final 300ms before advancing from the
+    outgoing CSS animation event; reduced motion keeps the first session and first spinner
+    frame;
   - the dev servers chip's 6px dot sends one ring out on a 1.8s loop while at least one
     server runs in the active checkout; zero servers or a failed scan (a still red dot)
     draw nothing moving; reduced motion keeps the still green dot (DL-36.1).
@@ -720,14 +725,11 @@ covering it; the file explorer is the resident instance.
 - **DL-19.2** The seam is a single `--hair` border on the panel's inner edge (DL-3.3), with
   no shadow, gradient or second rule. The background step from `--bg` to `--sidebar-bg`
   separates the regions and keeps the panel on the navigation sidebar's plane (DL-18.7).
-- **DL-19.3** The header is the tab row (DL-19.7), built from the window's own controls at
-  the tab bar's 13px chrome icon size (DL-14.2). It is `--frame-h` tall with
-  `box-sizing: border-box`, closing on the same pixel row as the stage strip beside it. A
-  shown column carries its hide control at its outer edge, ending the tab row at the
-  window's right edge short of the Windows caption buttons' footprint (DL-18.4); the stage
-  strip carries the control only while the column is gone, and `App` gates that mount on the
-  panel being absent ([`DockPanel`](../src/ui/dock/dock-panel.tsx)).
-  Why: a 28px header once landed its hairline 5px above the strip's.
+- **DL-19.3** The shipping toolbar keeps Quota and Session history visible at the outer
+  right edge, separated from the three pane actions by a vertical hairline. No separate
+  show/hide panel button is mounted. In sidebar layout the strip spans the stage and the
+  panel begins below it; caption controls keep their reserved footprint. The panel omits
+  its duplicate header when these external controls are present.
 - **DL-19.4** Width is set by dragging the seam, persists as an ordinary setting and is
   clamped to a min and max; the floor is 360px. The drag target is 9px wide and paints
   nothing at rest; hovered, or during a drag, it lights the panel's hairline in the accent
@@ -745,11 +747,12 @@ covering it; the file explorer is the resident instance.
   header, the only part of the column Deck does not paint. A native view cannot be covered
   by any DOM layer, so the panel hides it whenever an overlay opens.
 - **DL-19.7** A panel hosting more than one surface names them in a tab row and shows exactly
-  one at a time. The row is the header (DL-19.3): a `role="tablist"` of `role="tab"` chips,
+  one at a time. The toolbar group (DL-19.3) is a `role="tablist"` of `role="tab"` chips,
   the active one carrying DL-21.1's full wash and idle chips none. The chips are icon-only,
-  grouped immediately before the right-panel toggle at the window's outer edge, each with a
+  always available at the window's outer edge, each with a
   sentence-case `aria-label` and DL-23.10's tooltip; their glyphs use Phosphor's `fill`
   weight, a surface-scoped exception to DL-14.1 ([`DockTabs`](../src/ui/dock/dock-tabs.tsx)).
+  Clicking the selected open tab closes the panel; a closed panel marks neither chip active.
   A tab the running host cannot serve is omitted, not disabled. The selection persists as a
   setting and is re-resolved against host support on every read, so changing host never
   paints an empty column ([`availableDockTabs`](../src/ui/dock/dock-tab-registry.ts)).
@@ -757,6 +760,9 @@ covering it; the file explorer is the resident instance.
   would take a third of a 360px panel, so it becomes a compact chip row above the content,
   with the same `role="tablist"` and DL-21.1/21.2 selection language, walked with ←/→. A
   chip may print a shorter label if its full name stays the accessible name (WCAG 2.5.3).
+  Session history places its icon-only Refresh action at the right of this filter row.
+  Its project picker omits OS temporary roots (/tmp, /var/tmp and /private/tmp); All projects
+  still includes their recorded sessions.
 - **DL-19.9** A panel tab hangs its own actions off the row that names what it shows; the
   shared header carries no control belonging to one tab. They are a trailing cluster of
   icon-only controls, visible at rest, sized to the row rather than to chrome: `.iconbtn`'s
@@ -766,18 +772,19 @@ covering it; the file explorer is the resident instance.
   files, Refresh and Collapse all: 89px at DL-19.4's floor, and the root's name truncates
   first. Show hidden files is a toggle: `aria-pressed` carries its state and its glyph shows
   it (`EyeSlash` hidden, `Eye` shown), with no wash; its tooltip is the name alone. The
-  Explorer has two views and shows its switch above that row: a `role="tablist"` of two
-  chips, Files and Changes, in a 28px row with DL-21.1's wash on the active chip at
-  `--radius-tab`, walked with ←/→ ([`ExplorerSwitch`](../src/files/ui/explorer-switch.tsx)).
-  The row below names the view showing: the tree root for Files, the branch for Changes,
-  where the totals and Refresh sit ([`ChangesList`](../src/files/ui/changes-list.tsx)). A
-  Changes chip the folder cannot serve is disabled with its reason, because a hidden entry
-  cannot say why (DL-21.4); on a host that cannot serve the read the switch is omitted
-  (DL-19.7).
+  source-control and Files surfaces are retired from the shipping dock; the dock exposes
+  only Quota and Session history. The retained source-control implementation uses the same
+  chip selection language. A plain parent folder groups the Git
+  repositories discovered beneath it; each group owns its branch comparison, target selector,
+  refresh and Fetch action. Commit rows expand to changed files and distinguish Local only,
+  Pushed and No upstream. The legacy Explorer keeps its Files / Changes switch where the
+  source-control host is unavailable.
   Why: the wash is DL-21.1's selection signifier, and a filter is not a selection.
 - **DL-19.10** Opening a document splits the Explorer's existing width into a narrower list
   and a document panel on its left, so the list stays against the window edge; it creates no top-strip chip. The panel's Open files
   selector retains access to kept and dirty files ([FilePanel](../src/files/ui/file-panel.tsx)).
+  A Git file selection uses the existing dock width for a read-only unified diff, with a
+  Back to changes action returning to the repository groups.
   The row with the displayed document's path carries DL-21.1's wash at `--radius-tab`
   (DL-20.1's 28px clause; hover takes the same corner), its name and icon take
   `--text-primary`, and it is `aria-selected`; DL-21.3's ring composes with it. When the
@@ -814,15 +821,10 @@ overflow menu and the permanent home of the pane group.
   Why: a `disabled` attribute makes the reason unreachable by keyboard.
 - **DL-23.7** The update pill re-measures its reserved width when the toolbar resizes; a
   phase change that widens it without a resize can overlap for one frame.
-- **DL-23.8** The pane group lives in `More`, not on the bar: Split vertically, Split
-  horizontally, Focus expand and Close pane are rows at every window width, so the toolbar
-  at the stage strip's trailing end can render zero controls and still draws the `Ellipsis`
-  `More` control ([`feature-toolbar.tsx`](../src/ui/toolbar/feature-toolbar.tsx)). On
-  Electron's sidebar layout `More` carries the pane group only, the global group being the
-  rail's icon row (DL-28); top-tab mode, Tauri and an Electron window with no live rail print
-  the pane group, a hairline, then the global group
-  ([`deck-toolbar.tsx`](../src/ui/toolbar/deck-toolbar.tsx)).
-  Why: the pane header draws no actions (DL-32.8), so `More` keeps the pane group.
+- **DL-23.8** Split vertically, Split horizontally and Focus expand are direct toolbar icons
+  at every width. Close pane appears on every terminal's header (DL-32.8).
+  The shipping toolbar has no `More` button. Where the rail's tools are absent, Browser,
+  Prompts and Settings are direct toolbar icons.
 - **DL-23.9** `.toolbar-menu__row` takes `--type-title` (14px) for its label, `--type-body`
   for its chord and `--type-meta` for its unavailable reason, with a `RAIL_ICON` (16px)
   leading mark and 6px of vertical padding, a 28px row. This is a role widening of DL-4.4
@@ -832,12 +834,8 @@ overflow menu and the permanent home of the pane group.
   `title` and resolves its chord from the action id through `shortcutLabel`, never a
   literal, so a rebind reaches the text and each platform sees its own notation.
   Why: two tooltips for one control is one too many; the native one skips keyboard focus.
-- **DL-23.11** The toolbar carries one split-button, the external-app control: an icon that
-  performs the frequent action (open this workspace in that app) joined to a caret that
-  changes which app. The pair reads as one object, with a shared hairline frame, the caret
-  narrower than the action and no gap. The caret opens the same `.toolbar-menu` popover that
-  `More` opens. The control is absent, not disabled, when the host reports no installed app
-  (DL-19.7); the action half takes DL-23.1's tooltip and DL-23.6's unavailable treatment.
+- **DL-23.11** The shipping toolbar omits the external-app `Open in` split-button.
+  External-app settings and file-link routing remain available.
 
 ## 24. The theme gallery
 
@@ -869,14 +867,15 @@ resuming the session.
   a row has no second action. Why: resuming spawns a pane, cds into a recorded directory and
   types a command with no undo, so a stray click on the list must not fire it.
 - **DL-25.2** Row content runs in fixed order: an identity mark for the agent that ran it, the
-  session's name (its title, or its id when no title was found), the project directory, when it
+  session's name (its title, or its id when no title was found), the account and running status
+  when supplied by CLI Manager, the project directory, when it
   last changed, and the action at the trailing edge. A long name truncates; nothing reorders.
   The identity mark is the agent's brand mark through
   [`AgentGlyph`](../src/ui/controls/agent-glyph.tsx), as in the rail row and strip chip.
 - **DL-25.3** A row whose action cannot run is unavailable, not disabled (DL-23.6): it keeps its
   place in the tab order, reads `--text-faint` on an unchanged surface, drops the hover
   treatment and carries its reason in an accessible description. The action button itself stops
-  looking runnable.
+  looking runnable. The reason sits below the row metadata so it does not squeeze the title.
 - **DL-25.4** A list that shows less than it found says so at its foot, naming the bound and the
   total.
 - **DL-25.5** The action wears DL-5.2's quiet bordered pill: transparent fill, 1px `--hair`
@@ -911,7 +910,8 @@ shadow.
   on the row's logo (DL-27.21). No status word is painted as a mark; the word lives in `title`
   and the accessible name even when no mark is painted. On the tree, a session row's second
   line carries the state word as text when the agent has no turn yet: `Working`, `Needs you`,
-  `Failed`, `Finished`, `Ready`, `No signal`, `Ended`.
+  `Failed`, `Finished`, `Ready`, `Ended`. A live process without a fresh activity signal omits
+  the state word until the tracker receives one.
   Why: a second signifier for the same state is DL-21.6's mistake.
 - **DL-27.3** State has six words, drawn as one mark in a fixed 14px box (the resting dot paints
   9px of ink centred in it by `::before`), so row geometry never moves between states.
@@ -992,25 +992,14 @@ shadow.
   checkout opens. The header carries no state mark, age or worktree level of its own; its
   `N need you` count (DL-27.27) is not a state mark.
 - **DL-27.13** Retired. Replaced by DL-27.28.
-- **DL-27.14** On Electron the identity row (`toggle → logo → Deck`) is followed by a create row
-  outside the scrolling list: three equal 24px buttons reading `Worktree`, `Folder`, `Agent`
-  ([`rail-create-row.tsx`](../src/ui/rail-create-row.tsx)), in `--type-body` with `CHROME_ICON`
-  and DL-23 tooltips that name the target. `Worktree` and `Folder` carry a `--hair` outline.
-  `Agent` is the primary verb: last in DOM order so focus follows the eye, drawing `Plus` on the
-  launcher's filled skin (`--text-primary` ground, `--bg` label). `Agent` opens the launch page
-  on the focused checkout; `Worktree` opens a sidebar form that creates a checkout and starts
-  nothing; `Folder` adds a folder to the rail and starts nothing. Collapsed, the three verbs
-  stack as icon buttons at the top of the column, `Agent` filled the same way (DL-27.29).
-  Tauri's legacy rail keeps its pinned `New Workspace` button.
-
-  `Agent` can also be dragged onto a pane, docking an agent pane at that pane's nearest edge
-  ([`new-pane-drag.ts`](../src/ui/new-pane-drag.ts)). The drag reuses the pane drag's vocabulary:
-  a 5px threshold separates a click from a grab, the `.pane-drag-ghost` label follows the cursor
-  and the half-pane `.drop-overlay` names the edge. At rest the only affordance is
-  `cursor: grab` on hover. The drag goes inert (the ghost finds no target) whenever the stage is
-  covered: a browser or document surface, the Open board, full-bleed Settings, any modal. A
-  zoomed tab is the exception: the whole stage becomes the zoomed pane's drop zone, with four
-  edges.
+- **DL-27.14** On Electron the identity row is followed by a Folder control outside the
+  scrolling list ([`rail-create-row.tsx`](../src/ui/rail-create-row.tsx)). It keeps the existing
+  outlined 24px button, sized to its content with 10px horizontal padding, `--type-body`
+  label, `CHROME_ICON` and tooltip treatment. Choosing a
+  folder immediately opens a shell-only tab at that directory, then remembers it on the rail.
+  Cancelling creates nothing; failures stay in the create row. Agent and Worktree create
+  controls are retired. Collapsed, Folder is one icon button above the avatars (DL-27.29).
+  Tauri's legacy rail keeps its pinned New Workspace button.
 - **DL-27.15** Every row carries the agent's newest turn at equal legibility, in every state. On
   Electron the sentence is read off the agent's own session log
   ([`session-tail.ts`](../electron/resume/session-tail.ts)); Tauri's `RepositoryRail` keeps its
@@ -1115,7 +1104,8 @@ shadow.
   never silently absent: while the discovery probe runs it states
   `Looking for installed agents…`, and when no selected agent is available it offers a route to
   Settings. That stated absence is a fact, not a menu item, so roving focus does not stop on it.
-  The menu offers no external terminal app. Tauri retains the menu fallback.
+  Folder headers and checkout menus also offer Open in VS Code and Open folder, targeting
+  that exact folder. The menu offers no external terminal app. Tauri retains the menu fallback.
 - **DL-27.27** A live project header counts who needs the user: the number of the project's
   panes that are `asked` or `failed`, printed as `N need you` in `--status-unread` (`--red` when
   any failed), micro size, weight 400, and nothing at zero. A count is not a state mark, so this
@@ -1124,26 +1114,32 @@ shadow.
   with no count keeps the caret visible at rest, so folded reads differently from empty. The
   header's last track belongs to the live close alone, and the toggle stops 23px short of the
   edge so the count does not move ([header styles](../src/styles/04a-agent-rail.css)).
-- **DL-27.28** The Electron rail is a flat tree: project › checkout › session. A project header
-  is followed by one label line per checkout, showing the branch name and a `worktree` tag for a
-  linked worktree, then that checkout's session rows, indented one step. No card frame, border or
+- **DL-27.28** The Electron rail nests an opened child folder under its nearest displayed
+  parent folder, indented 14px per folder level; folding a parent hides its descendants.
+  Folder nesting preserves each project's session and close targets. Within each project:
+  project › branch › session when a Git branch exists, including the primary checkout.
+  Plain folders and a primary checkout with detached HEAD omit the branch line. A linked
+  checkout shows its branch name and a `worktree` tag, then its session rows one step below.
+  No card frame, border or
   fill groups a checkout and the checkout line ends without a `+`; the current checkout carries
   no mark of its own, so the focused row is the only "you are here". A session row is two lines:
-  the task label (tab name, else the session's first prompt, else the agent label, never an
+  the task label (tab name, else the CLI's current conversation title or recorded session title,
+  else the agent label, never an
   invented name) in the row's weight, then the agent label · the newest turn (DL-27.15) in
   `--text-muted`. Without a sentence the second line carries the state word in its place
   (DL-27.2), and an unnamed row's second line keeps the CLI prefix (`Claude Code · …`). The state
   word also stays in the accessible name. The badge and close follow DL-27.21 and the logo keeps
   its full colour; the model pill leaves the row for its tooltip. Rows are flat: no fill at rest,
-  a hover wash only, and the focused row's inversion (DL-27.22). Indents: the project icon sits
-  14px from the sidebar edge, a checkout's branch icon 22px, a session row's edge 26px. The
+  a hover wash only, and the focused row's inversion (DL-27.22). Folder, branch and session
+  glyphs advance by the same 14px step. Headers share equal
+  padding; nested folders have a 4px gap and top-level projects have a 12px gap. The
   project name is `--text-primary` at weight 600. The project header's caret is the only fold.
 - **DL-27.29** Collapsed, the rail is a column of project avatars. On Electron the sidebar's
   collapse (DL-18.9's control, setting and drag) narrows the rail to one avatar per live project,
   in rail order, instead of hiding it. An avatar is the project's `WorkspaceIcon` with a corner
   badge counting the panes that need the user (`--status-unread`, `--red` when any failed, absent
   at zero; DL-27.27); the project holding the focused pane carries the current mark. The column
-  opens with DL-27.14's three verbs as stacked icon buttons above the avatars, a hairline between,
+  opens with DL-27.14's Folder icon button above the avatars, a hairline between,
   with native `title`s like the avatars. Pressing an avatar opens a DL-13 popover beside the
   column with that project's checkout tree exactly as DL-27.28 draws it; choosing a row focuses
   its pane and closes the popover, and Esc closes it. Collapse and expand never move the focused
@@ -1152,38 +1148,33 @@ shadow.
 
 ## 28. The rail's action footer
 
-The foot of the Electron sidebar rail is one row of six icon buttons, below the project list
-and above the §33 usage summary, which closes the rail. The frozen Tauri rail and top-tab
+The foot of the Electron sidebar rail is one row of two icon buttons, below the project list
+and the independent §33 quota region. The frozen Tauri rail and top-tab
 mode do not mount the row ([`SidebarActions`](../src/ui/sidebar-actions.tsx)).
 
 - **DL-28.1** The row is pinned below the scrolling workspace list, never inside the scroll
   region, so it stays in reach of the surfaces it opens.
-- **DL-28.2** The six buttons are `RAIL_ICON`-sized, in this order: Session history, Token
-  usage, Explorer, Prompts, Browser, Settings. Each has DL-23's tooltip (name and chord)
-  opening above the button (DL-23.4). Hover takes DL-21.2's wash and keyboard focus DL-21.3's
-  outline; an action that cannot run follows DL-23.6.
-- **DL-28.3** The row carries everything that is not an operation on the focused pane: the
-  surfaces Deck can open (Explorer is the dock's explorer tab, ⌘⇧B) and the window's own
-  actions. Pane operations live in `More` (DL-23.8) and on their chords. A surface the running host cannot serve is omitted, not disabled (DL-19.7).
-- **DL-28.4** Top-tab mode has no rail, so the same members ride in the toolbar's `More`
-  menu there, built from the same projection
-  ([`pinnedMenu`](../src/ui/toolbar/feature-toolbar.tsx)). Top-tab mode, the Tauri host and
-  an Electron window with no live rail put the global group in `More`; the Electron sidebar
-  mounts the icon row instead, and `More` then carries the pane group only.
-- **DL-28.5** The icons open their surface and report nothing: no DL-21.1 wash, no
-  `aria-pressed`, no `aria-expanded` (DL-21.8), and pressing the icon of a surface already
-  on screen does nothing. Prompts keeps `aria-haspopup` without `aria-expanded`. Closing
-  belongs to each surface's own control. A chord stays a toggle (`revealDockTab`) and a
-  launcher opens (`openDockTab`, [`settings-store.ts`](../src/settings/settings-store.ts)).
-  Why: an icon painted active would promise a second press that puts the surface away.
-- **DL-28.6** Collapsed to DL-27.29's avatar column, the six icons give way to a single
-  `Tools` grid button at the column's foot. It opens a DL-13 popover beside the column whose
-  rows are the same six tools with their chords (DL-23.5's row shape). Choosing a row runs
-  it and closes the popover; Esc closes it and returns focus to the button; the stage
-  overlay flag is raised while it is open so the browser's native view steps aside. The
-  Prompt Board popover anchors to this button while the rail is collapsed. The button
-  carries a native `title`, because a tooltip centred above the narrow column would hang far
-  from it ([`RailToolsMenu`](../src/ui/rail-tools-menu.tsx)).
+- **DL-28.2** The two buttons are `RAIL_ICON`-sized, in this order: Quota, Settings.
+  Each has DL-23's tooltip opening above the button (DL-23.4). The left Quota toggle has
+  no chord: the global Quota shortcut controls the right dock. Hover takes DL-21.2's wash
+  and keyboard focus DL-21.3's outline; an action that cannot run follows DL-23.6.
+- **DL-28.3** The left Quota icon toggles only the sidebar's lower region; Settings opens
+  the window's settings. Session history lives in the right dock. Pane operations live in
+  the focused header and toolbar (DL-23.8), and on their chords.
+- **DL-28.4** Top-tab mode, Tauri and Electron windows without a live rail expose Settings
+  directly in the toolbar. Browser and Prompts are retired. The Electron sidebar mounts the rail icon
+  row instead, so each surface keeps one entry point.
+- **DL-28.5** Right header dock icons open their surface when closed, switch surfaces
+  when open, and close the panel on a second press. Closing restores stage focus. The
+  left quota region persists its own visibility independently; choosing Quota from a collapsed
+  rail expands that rail and shows quota. Its icon reports `aria-pressed` without a selection
+  wash (DL-21.8). Programmatic launchers can still open without toggling (`openDockTab`,
+  [`settings-store.ts`](../src/settings/settings-store.ts)).
+- **DL-28.6** Collapsed to DL-27.29's avatar column, the two icons give way to one `Tools`
+  grid button. It opens a DL-13 popover with the same two tools. Choosing a row runs it and
+  closes the popover; Esc closes it and returns focus to the button. The stage overlay flag
+  is raised while open. The button carries a native `title`, like the column's avatars
+  ([`RailToolsMenu`](../src/ui/rail-tools-menu.tsx)).
 
 ## 29. Modals
 
@@ -1305,36 +1296,43 @@ The launcher is the compact launch page plus the Open Board's agent cards, shari
   chosen checkout, else `New space`. The chip is identity, not a control. Changing workspace or
   checkout re-targets in place and starts nothing; the launch does what the chip says.
 - **DL-32.7** Agent panes carry one compact identity header. On Electron the
-  [pane header](../src/terminal/pane-agent-header.tsx) is logo · the sidebar's latest message
-  (one line, ellipsis, full text on hover), with no buttons (DL-32.8). It
+  [pane header](../src/terminal/pane-agent-header.tsx) is logo · account id (for example codex1),
+  falling back to the agent name when no account is known. It uses the exact local session's
+  account, the foreground agent's profile account or the explicit launch account, never another
+  session's identity. The latest message
+  stays in the hover text; the label is one line with ellipsis and a close action (DL-32.8). It
   stays visible when the legacy shell pane bar is hidden; hover is neutral and keyboard focus
   explicit (`pane-agent-header.css`). On `.pane-slot.is-active` the bar takes
   the pane's `--bg` and a transparent bottom seam, so header and body read as one sheet inside
   DL-18.12's focus edge; other panes keep `--chrome-2` (DL-3.3). The height is unchanged.
   Why: the join needs xterm and `--bg` to read the same `theme.background`
   ([`theme-vars.ts`](../src/lib/theme-vars.ts)).
-- **DL-32.8** The pane header draws no action buttons (owner, 2026-10-10): neither the Claude
-  Effort picker nor Split horizontally, Split vertically, Focus expand and Close pane, which
-  shipped on 2026-10-07 and were removed after the owner reviewed them. The pane operations
-  live in `More` (DL-23.8) and on their chords. A shell pane in a split tab keeps its pinned
-  agent logos (`pane-quick-agents.tsx`).
+- **DL-32.8** Every terminal has a header with Close pane always visible. Closing targets
+  that pane without requiring focus or starting a pane drag.
+  Split vertically, Split horizontally and Focus expand stay on the stage toolbar (DL-23.8). Shell headers keep the pinned agent logos (`pane-quick-agents.tsx`).
 
 ## 33. Sidebar usage and retained activity rows
 
-The sidebar footer is [AgentUsageSummary](../src/ui/usage/agent-usage-summary.tsx), composed
-through [AgentRail](../src/ui/agent-rail.tsx) and styled in
-[15-rail-footer.css](../src/styles/15-rail-footer.css). The retained
-[RecentSessionActivity](../src/ui/sessions/recent-session-activity.tsx) component follows
-DL-33.2–33.5 when reused; it is not the sidebar footer.
+The Electron sidebar gives the folder tree the remaining space above
+[RailQuotaPanel](../src/ui/usage/rail-quota-panel.tsx), which fits its content up to half
+the sidebar height, with independent scrolling and the
+§28 tools pinned below both. The retained
+[RecentSessionActivity](../src/ui/sessions/recent-session-activity.tsx) follows DL-33.2–33.5
+when reused; it is not mounted in the sidebar.
 
-- **DL-33.1** Agent usage is one line of micro text under the tools row, below the project list:
-  each agent's name and current window percentage (`Claude 42% · 5h`) in faint ink, the number in
-  muted ink with tabular figures. The window shown is the one closest to its limit; the tooltip
-  and accessible label list every window, reset times and unavailable-state explanations. Height
-  follows content (border-box, no flex grow or shrink) under one `--seam-recessed` separator, with
-  no card background. The [limit normalizer](../src/lib/agent-limits.ts) turns missing, failed,
-  stale or reset windows into a dash and never infers a percentage from token counts. No limit
-  colour is drawn. Selecting it opens the Usage dock; a collapsed sidebar hides it.
+- **DL-33.1** The left quota region shows only Codex, without a provider heading or count. Each account
+  occupies one flat row with its name on the left and two labelled horizontal meters on the
+  right: 5h above, 1w below. Each meter shows its remaining percentage; the 5h fill uses the
+  accent and the weekly fill uses neutral foreground ink. A zero short window replaces its
+  meter with `5h resets in XhYm` (minutes only below one hour); a zero weekly window uses
+  `1w DD/MM HH:mm` in local time.
+  Reset text stays on that window's existing line, with its percentage still visible and
+  no extra Limited row. Reset labels stay hidden while allowance remains.
+  Unknown windows use a dashed track; unavailable, stale and offline readings are labelled.
+  No active-account badge is drawn. Account double-click and terminal drop add a split;
+  a folder drop opens a separate tab. The panel shares CLI Manager's existing 30-second poll
+  with the right Quota dock. Hiding the region returns its space to the tree; a collapsed
+  sidebar omits it. The right dock retains its detailed quota table.
 - **DL-33.2** Every row is a verified session summary. The store pins each tail request to the
   listed session id and accepts a sentence only when the returned id matches exactly, else falls
   back to the title, then the id. Rows are ordered by latest activity, never agent state. A row is

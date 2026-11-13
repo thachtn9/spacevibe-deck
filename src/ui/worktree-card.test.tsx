@@ -1,3 +1,4 @@
+import { tabViews } from "../terminal/tabs-store";
 // @vitest-environment jsdom
 import { render } from "preact";
 import { act } from "preact/test-utils";
@@ -129,6 +130,7 @@ function mount(props: Partial<WorktreeCardProps> & { readonly group: RailWorktre
 }
 
 beforeEach(() => {
+  tabViews.value = [];
   settings.value = DEFAULT_SETTINGS;
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -136,6 +138,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => render(null, host));
+  tabViews.value = [];
   host.remove();
 });
 
@@ -176,6 +179,46 @@ describe("WorktreeCard label line (DL-27.28)", () => {
     expect(onFocusPane).toHaveBeenCalledExactlyOnceWith(8, 22);
   });
 
+  it.each(["checkout", "agent row", "shell row"])(
+    "selects the original tab before focusing a pinned %s",
+    (target) => {
+      const calls: string[] = [];
+      tabViews.value = [
+        {
+          key: 1,
+          process: "claude",
+          name: null,
+          dotColor: null,
+          workspacePath: "/a",
+          agents: ["claude"],
+          agentBusy: false,
+          unread: false,
+          panes: [
+            {
+              paneId: 11,
+              pinned: true,
+              agent: "claude",
+              attention: "none",
+              phase: "idle",
+              hasRun: false,
+              changedAt: 0,
+            },
+          ],
+        },
+      ];
+      mount({
+        group:
+          target === "shell row"
+            ? group({ entries: [shell({ tabIndex: 0 })] })
+            : group({ panes: [pane()] }),
+        onSelectTab: (index) => calls.push(`tab:${index}`),
+        onFocusPane: (index, id) => calls.push(`pane:${index}:${id}`),
+      });
+      click(target === "checkout" ? focusButton() : host.querySelector(".asr-card__hit"));
+      expect(calls).toEqual(["tab:0", "pane:0:11"]);
+    },
+  );
+
   it("selects a shell-only checkout through the existing tab callback", () => {
     const onSelectTab = vi.fn();
     const onFocusPane = vi.fn();
@@ -195,7 +238,7 @@ describe("WorktreeCard label line (DL-27.28)", () => {
     expect(focusButton()?.getAttribute("aria-label")).toBe(`Focus ${WHERE}`);
   });
 
-  it("names the primary checkout by its branch alone, so the project word is not printed twice", () => {
+  it("shows the primary Git branch above its sessions", () => {
     mount({
       project: "spacevibe-board",
       group: group({ name: "spacevibe-board", branch: "main", primary: true, panes: [pane()] }),
@@ -203,7 +246,17 @@ describe("WorktreeCard label line (DL-27.28)", () => {
 
     expect(line()?.querySelector(".asr-checkout__name")?.textContent).toBe("main");
     expect(line()?.querySelector(".asr-checkout__tag")).toBeNull();
-    expect(line()?.textContent).not.toContain("spacevibe-board");
+    expect(
+      host.querySelectorAll('.asr-checkout[data-primary="true"] > .asr-card__row'),
+    ).toHaveLength(1);
+  });
+
+  it("omits the primary branch line for detached HEAD instead of printing a fallback folder name", () => {
+    mount({
+      group: group({ primary: true, hasBranch: false, branch: "project", panes: [pane()] }),
+    });
+    expect(line()).toBeNull();
+    expect(host.querySelector(".asr-checkout")?.getAttribute("data-branched")).toBe("false");
   });
 
   it("marks only the checkout holding the focused pane as current", () => {
@@ -586,7 +639,7 @@ describe("WorktreeCard two-line rows (DL-27.28)", () => {
 
 describe("WorktreeCard checkout with nothing open", () => {
   it("is its label line alone, the label text rather than a focus button", () => {
-    mount({ group: group({ name: "docs", branch: "main", primary: true, panes: [] }) });
+    mount({ group: group({ name: "docs", branch: "main", primary: false, panes: [] }) });
 
     expect(host.querySelector(".asr-card__row")).toBeNull();
     expect(focusButton()).toBeNull();
@@ -656,22 +709,21 @@ describe("WorktreeCard folder git does not know (DL-27.23, amended 2026-09-23)",
       ...overrides,
     });
 
-  it("draws the same tree as a checkout, tagged `folder`", () => {
+  it("places a plain folder's sessions directly below the project", () => {
     mount({
       project: "scratch",
       group: folder({ panes: [pane({ paneId: 1 }), pane({ paneId: 2 })] }),
     });
 
-    expect(line()?.querySelector(".asr-checkout__name")?.textContent).toBe("scratch");
-    expect(line()?.querySelector(".asr-checkout__tag")?.textContent).toBe("folder");
+    expect(line()).toBeNull();
     expect(host.querySelectorAll(".asr-card__row")).toHaveLength(2);
   });
 
-  it("is its label line alone when nothing is open in it", () => {
+  it("adds no duplicate folder label when nothing is open in it", () => {
     mount({ project: "scratch", group: folder() });
 
     expect(host.querySelector(".asr-card__row")).toBeNull();
-    expect(line()?.querySelector(".asr-checkout__tag")?.textContent).toBe("folder");
+    expect(line()).toBeNull();
   });
 });
 

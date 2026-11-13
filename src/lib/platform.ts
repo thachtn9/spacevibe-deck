@@ -1,6 +1,6 @@
 import { invoke } from "../host/bridge";
 
-export type DesktopPlatform = "macos" | "windows" | "unsupported";
+export type DesktopPlatform = "macos" | "windows" | "linux" | "unsupported";
 
 export interface DesktopEnvironment {
   readonly platform: DesktopPlatform;
@@ -12,7 +12,12 @@ type ModifierEvent = Readonly<Pick<KeyboardEvent, "metaKey" | "ctrlKey">>;
 type EnvironmentLoader = () => Promise<unknown>;
 type DiagnosticWriter = (message: string, error: unknown) => void;
 
-const SUPPORTED_PLATFORMS: ReadonlySet<string> = new Set(["macos", "windows", "unsupported"]);
+const SUPPORTED_PLATFORMS: ReadonlySet<string> = new Set([
+  "macos",
+  "windows",
+  "linux",
+  "unsupported",
+]);
 const MACOS_ABSOLUTE_PATH = /^\//;
 const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/;
 const FALLBACK_ENVIRONMENT: DesktopEnvironment = Object.freeze({
@@ -27,7 +32,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function hasAbsoluteHome(platform: DesktopPlatform, homeDir: string): boolean {
-  if (platform === "macos") {
+  if (platform === "macos" || platform === "linux") {
     return MACOS_ABSOLUTE_PATH.test(homeDir);
   }
   if (platform === "windows") {
@@ -91,7 +96,7 @@ export function hasPrimaryModifier(event: ModifierEvent): boolean {
   if (platform === "macos") {
     return event.metaKey;
   }
-  if (platform === "windows") {
+  if (platform === "windows" || platform === "linux") {
     return event.ctrlKey;
   }
   return false;

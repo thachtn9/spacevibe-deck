@@ -229,6 +229,8 @@ export function loadMonaco(): Promise<MonacoApi> {
     // The enumeration, written out. Each `register.js` registers a lazy loader,
     // so a language's tokenizer is only fetched when a file of that kind opens.
     await Promise.all([
+      import("monaco-editor/editor/contrib/find/browser/findController.js"),
+      import("monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js"),
       import("monaco-editor/languages/definitions/typescript/register.js"),
       import("monaco-editor/languages/definitions/javascript/register.js"),
       import("monaco-editor/languages/definitions/css/register.js"),

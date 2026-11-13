@@ -138,6 +138,7 @@ import { initializeDesktopEnvironment, resetDesktopEnvironmentForTests } from ".
 import { settings } from "../../settings/settings-store";
 import {
   closeFileSurface,
+  documentFor,
   openFileTab,
   pendingReveal,
   requestReveal,
@@ -215,6 +216,18 @@ afterEach(() => {
 });
 
 describe("FileEditor", () => {
+  it("keeps a writable source file read only in the code viewer", async () => {
+    openFileTab("/r", PATH, { keep: true });
+    updateDocument(PATH, { file: textFile(), text: "const a = 1;\n" });
+    act(() => render(<FileEditor path={PATH} controller={controller} readOnly />, host));
+    await act(async () => {});
+    expect(stub.options.readOnly).toBe(true);
+    stub.currentModel!.value = "accidental edit";
+    stub.contentHandler?.();
+    expect(documentFor(PATH)?.text).toBe("const a = 1;\n");
+    expect(documentFor(PATH)?.dirty).toBe(false);
+  });
+
   it("renders the refusal with its stated reason, never an empty editor", () => {
     openFileTab("/r", PATH, { keep: true });
     updateDocument(PATH, {

@@ -92,7 +92,69 @@ describe("Pane input provenance", () => {
 });
 
 describe("Pane column floor", () => {
-  it("never resizes the terminal below 24 columns, however narrow the box measures", () => {
+  it.each(["process metadata", "split startup banner"])(
+    "keeps AGY's response visible during resize (identified by %s)",
+    async (identity) => {
+      const propose = vi
+        .spyOn(FitAddon.prototype, "proposeDimensions")
+        .mockReturnValue({ cols: 40, rows: 24 });
+      const pane = createPane(32, DEFAULT_SETTINGS as Settings, silentEvents, {
+        cols: 80,
+        rows: 24,
+      });
+      try {
+        if (identity === "process metadata") {
+          pane.setHeaderInfo({ agent: true, badge: "agy", cwd: "/tmp", dotColor: "gray" });
+        } else {
+          pane.write("\x1b[1mAntigrav");
+          pane.write("ity CLI 1.3.5\x1b[m\r\n");
+          pane.setHeaderInfo({ agent: false, badge: "python3", cwd: "/tmp", dotColor: "gray" });
+        }
+        pane.write("ORIGINAL RESPONSE\r\nSTATUS");
+        await pane.flush();
+        pane.fit();
+        await vi.waitFor(() => expect(pane.cols).toBe(40));
+        pane.write("\x1b[?2026h\x1b[H\x1b[JSTATUS\x1b[?2026l");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(pane.serializeScrollback(100)).toContain("ORIGINAL RESPONSE");
+        pane.write("\x1b[2J\x1b[3J\x1b[H\x1b[?2026hREFORMATTED RESPONSE\r\nSTATUS\x1b[?2026l");
+        await pane.flush();
+        const content = pane.serializeScrollback(100);
+        expect(content).toContain("REFORMATTED RESPONSE");
+        expect(content).not.toContain("ORIGINAL RESPONSE");
+      } finally {
+        pane.dispose();
+        propose.mockRestore();
+      }
+    },
+  );
+
+  it("parses queued cursor-relative frames at their original width before resizing", async () => {
+    const propose = vi
+      .spyOn(FitAddon.prototype, "proposeDimensions")
+      .mockReturnValue({ cols: 30, rows: 24 });
+    const pane = createPane(31, DEFAULT_SETTINGS as Settings, silentEvents, {
+      cols: 80,
+      rows: 24,
+    });
+    try {
+      pane.write(`${"A".repeat(60)}\r\n${"B".repeat(60)}\r\n`);
+      // The CLI clears its two-row frame using the geometry it wrote with.
+      pane.write("\x1b[2A\r\x1b[JREADY\r\n");
+      pane.fit();
+      await pane.flush();
+      const content = pane.serializeScrollback(100);
+      expect(content).toContain("READY");
+      expect(content).not.toContain("AAAA");
+      expect(content).not.toContain("BBBB");
+      expect(pane.cols).toBe(30);
+    } finally {
+      pane.dispose();
+      propose.mockRestore();
+    }
+  });
+
+  it("never resizes the terminal below 24 columns, however narrow the box measures", async () => {
     const propose = vi
       .spyOn(FitAddon.prototype, "proposeDimensions")
       .mockReturnValue({ cols: 18, rows: 3 });
@@ -103,13 +165,16 @@ describe("Pane column floor", () => {
     });
     try {
       pane.fit();
+      await pane.flush();
       expect(resize).toHaveBeenLastCalledWith(24, 3);
       expect(pane.cols).toBe(24);
       propose.mockReturnValue({ cols: 18, rows: 1 });
       pane.fit();
+      await pane.flush();
       expect(resize).toHaveBeenLastCalledWith(24, 1);
       propose.mockReturnValue({ cols: 90, rows: 30 });
       pane.fit();
+      await pane.flush();
       expect(resize).toHaveBeenLastCalledWith(90, 30);
     } finally {
       pane.dispose();

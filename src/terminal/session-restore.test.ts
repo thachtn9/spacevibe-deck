@@ -407,7 +407,7 @@ describe("restoreSession", () => {
     const [intent] = mocks.materialize.mock.calls[0];
     // Codex's own resume form, with the flag Deck always types (DECK-121) and
     // nothing folded in from the recorded launch command.
-    expect(intent.paneCommands).toEqual(["codex resume abc123 -c tui.animations=false"]);
+    expect(intent.paneCommands).toEqual(["cli-codex resume abc123 -c tui.animations=false"]);
   });
 
   it("restores a pane with no recorded options exactly as before", async () => {
@@ -885,5 +885,82 @@ describe("readLastSession", () => {
     expect((await readLastSession(deps)).size).toBe(0);
     expect(mocks.clear).toHaveBeenCalledTimes(1);
     expect(mocks.readWindowRecords).not.toHaveBeenCalled();
+  });
+});
+
+describe("persistent Linux terminals", () => {
+  const reference = "11111111-1111-4111-8111-111111111111:7";
+  const metadata = {
+    agent: "codex",
+    cwd: "/w",
+    sessionId: "saved-session",
+    launchCommand: "cli codex2",
+    account: "codex2",
+  };
+  function setup() {
+    const fake = createFakeDeps({
+      records: new Map([
+        [
+          "main",
+          record({
+            tabs: [tab({ panes: [{ ...metadata, taskPrompt: null, terminalRef: reference }] })],
+          }),
+        ],
+      ]),
+    });
+    const persistent = {
+      attach: vi.fn(
+        async (_reference: string) =>
+          null as import("../lib/persistent-terminal").PersistentTerminalSnapshot | null,
+      ),
+      detach: vi.fn(async (_id: number) => {}),
+      recovery: vi.fn(async () => ({ [reference]: metadata })),
+    };
+    fake.deps.persistent = persistent;
+    return { ...fake, persistent };
+  }
+  it("reattaches the existing terminal without typing another agent command", async () => {
+    const { deps, mocks, persistent } = setup();
+    const attached = { id: 7, reference, cols: 90, rows: 30, screen: "still running", metadata };
+    persistent.attach.mockResolvedValue(attached);
+    expect(await restoreSession(deps, "main")).toBe(true);
+    expect(mocks.materialize).toHaveBeenCalledWith(
+      expect.objectContaining({ attachedPanes: [attached], paneCommands: [null] }),
+    );
+    expect(mocks.lookup).toHaveBeenCalledWith([]);
+  });
+  it("resumes the exact conversation and account when the previous daemon is gone", async () => {
+    const { deps, mocks } = setup();
+    expect(await restoreSession(deps, "main")).toBe(true);
+    expect(mocks.materialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachedPanes: [null],
+        paneCommands: ["cli resume saved-session --acc codex2"],
+      }),
+    );
+  });
+  it("does not guess a conversation when persistent metadata has no identity", async () => {
+    const { deps, mocks, persistent } = setup();
+    persistent.recovery.mockResolvedValue({
+      [reference]: { ...metadata, sessionId: null },
+    } as never);
+    await restoreSession(deps, "main");
+    expect(mocks.materialize).toHaveBeenCalledWith(
+      expect.objectContaining({ paneCommands: [null] }),
+    );
+  });
+  it("releases attached terminals if materialization fails", async () => {
+    const { deps, mocks, persistent } = setup();
+    persistent.attach.mockResolvedValue({
+      id: 7,
+      reference,
+      cols: 80,
+      rows: 24,
+      screen: "",
+      metadata,
+    });
+    mocks.materialize.mockResolvedValue(false);
+    expect(await restoreSession(deps, "main")).toBe(false);
+    expect(persistent.detach).toHaveBeenCalledWith(7);
   });
 });

@@ -27,13 +27,19 @@ import { effect, signal, type Signal } from "@preact/signals";
 import { available as electronHostAvailable } from "../host/worktree-host";
 import { sessionTails } from "../host/session-tail-host";
 import { NO_PANES, tabViews, type PaneView, type TabView } from "./tabs-store";
-import type { ResumeRequest, SessionTailAnswer } from "../lib/agent-resume";
+import type { ResumeRequest, SessionActivity, SessionTailAnswer } from "../lib/agent-resume";
 
 /** Newest turn per pane id. Absent means "nothing known", never "silent". */
 export const paneTails: Signal<ReadonlyMap<number, string>> = signal(new Map());
 
 /** Model per pane id, by the same pairing that produces `paneTails`. */
 export const paneModels: Signal<ReadonlyMap<number, string>> = signal(new Map());
+
+/** Newest user-authored task per pane, by the same exact session pairing. */
+export const paneTasks: Signal<ReadonlyMap<number, string>> = signal(new Map());
+
+/** Last visible assistant line per pane, under the same exact session pairing. */
+export const paneAgentLines: Signal<ReadonlyMap<number, string>> = signal(new Map());
 
 /**
  * Which session each pane is PAIRED with — the second half of what the store
@@ -86,6 +92,7 @@ function publishPairings(): void {
 }
 
 const DEBOUNCE_MS = 300;
+const EXACT_REFRESH_MS = 2_000;
 
 /** One request plus the pane it answers for — the batch is positional. */
 interface TailEntry {
@@ -97,11 +104,18 @@ let disposeEffect: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Fingerprint of the batch last SENT — the dedup key, kept on failure. */
 let sentFingerprint: string | null = null;
+let sentAt = 0;
 let inFlight = false;
 /** Bumped by `resetSessionTailStore`, so an in-flight answer can be discarded. */
 let epoch = 0;
 /** A change arrived mid-flight; re-run once the current batch settles. */
 let queued = false;
+type SessionActivityListener = (
+  paneId: number,
+  sessionId: string,
+  activity: SessionActivity,
+) => void;
+let sessionActivityListener: SessionActivityListener | undefined;
 
 function panesOf(tab: TabView): readonly PaneView[] {
   return tab.panes ?? NO_PANES;
@@ -180,6 +194,13 @@ export function noteExplicitTail(paneId: number, sessionId: string, text: string
   const tails = new Map(paneTails.value);
   tails.set(paneId, sentence);
   paneTails.value = tails;
+  const lastLine = sentence
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => line.trim() && !/^\s*(```|~~~)/.test(line))
+    ?.trim();
+  if (lastLine)
+    paneAgentLines.value = new Map(paneAgentLines.peek()).set(paneId, lastLine.slice(0, 160));
   publishPairings();
 }
 
@@ -357,24 +378,25 @@ function entriesOf(tabs: readonly TabView[]): readonly TailEntry[] {
 }
 
 /**
- * `paneTails` and `paneModels`, threaded together everywhere they are read or
- * written. Both describe the SAME pairing — a pane and the session it is
- * currently believed to be running — so they are carried as one pair through
- * `merged`/`prune`/`forget` rather than as two module-level maps a future edit
- * could update one of and forget the other.
+ * Tails, models, tasks and assistant lines, threaded together everywhere they
+ * are read or written. All describe the SAME pairing — a pane and the
+ * session it is currently believed to be running — so they travel together
+ * through `merged`/`prune`/`forget`.
  */
 interface PaneSessionMaps {
   readonly tails: ReadonlyMap<number, string>;
   readonly models: ReadonlyMap<number, string>;
+  readonly tasks: ReadonlyMap<number, string>;
+  readonly agentLines: ReadonlyMap<number, string>;
 }
 
 /**
- * Merge answers into a NEW pair of maps (C1), and update the pairing
- * alongside. `tails` and `models` follow the identical rule, independently
- * per field, keyed off the same `repaired` flag:
+ * Merge answers into NEW maps (C1), and update the pairing alongside. Tails,
+ * models and tasks follow the identical rule, independently per field, keyed
+ * off the same `repaired` flag:
  *
  * - **No answer at all** — nothing could be paired this time (a scan that
- *   raced a write, a cwd that drifted). Keep both fields AND the pairing: an
+ *   raced a write, a cwd that drifted). Keep every field AND the pairing: an
  *   absent scan is not evidence that the pane went quiet.
  * - **Same session, field absent in this answer** — keep what is on screen.
  *   For the tail this is the common case for a working pane, whose own tool
@@ -394,6 +416,8 @@ function merged(
 ): PaneSessionMaps {
   const tails = new Map(current.tails);
   const models = new Map(current.models);
+  const tasks = new Map(current.tasks);
+  const agentLines = new Map(current.agentLines);
   entries.forEach((entry, index) => {
     const answer = answers[index];
     if (answer === null || answer === undefined) {
@@ -411,8 +435,19 @@ function merged(
     } else if (repaired) {
       models.delete(entry.paneId);
     }
+    if (answer.task !== null && answer.task !== undefined && answer.task.length > 0) {
+      tasks.set(entry.paneId, answer.task);
+    } else if (repaired) {
+      tasks.delete(entry.paneId);
+    }
+    const line = answer.lastLine ?? answer.tail;
+    if (line) {
+      agentLines.set(entry.paneId, line);
+    } else if (repaired) {
+      agentLines.delete(entry.paneId);
+    }
   });
-  return { tails, models };
+  return { tails, models, tasks, agentLines };
 }
 
 /**
@@ -439,6 +474,8 @@ export function lastSessionIdFor(paneId: number): string | undefined {
 function forget(
   tails: Map<number, string>,
   models: Map<number, string>,
+  tasks: Map<number, string>,
+  agentLines: Map<number, string>,
   paneId: number,
   // A pane that CLOSED takes its last id with it; a pane whose agent merely
   // left keeps it, because that is precisely when Restart needs it
@@ -447,6 +484,8 @@ function forget(
 ): void {
   tails.delete(paneId);
   models.delete(paneId);
+  tasks.delete(paneId);
+  agentLines.delete(paneId);
   const going = paneSessions.get(paneId);
   if (keepLastSessionId) {
     if (going !== undefined) {
@@ -479,15 +518,19 @@ function prune(
 ): PaneSessionMaps {
   const tails = new Map(current.tails);
   const models = new Map(current.models);
+  const tasks = new Map(current.tasks);
+  const agentLines = new Map(current.agentLines);
   for (const paneId of [
     ...tails.keys(),
     ...models.keys(),
+    ...tasks.keys(),
+    ...agentLines.keys(),
     ...paneSessions.keys(),
     ...paneGenerations.keys(),
   ]) {
     if (!live.has(paneId)) {
       // The pane is GONE: it takes its last id with it.
-      forget(tails, models, paneId, false);
+      forget(tails, models, tasks, agentLines, paneId, false);
       paneGenerations.delete(paneId);
     }
   }
@@ -506,7 +549,7 @@ function prune(
         // because a pin does not self-correct. Passing `false` there is also
         // what delivers §11.11's "overwritten by the next shell→agent
         // generation", through `forget`'s own delete branch.
-        forget(tails, models, pane.paneId, liveAgentOf(pane) === null);
+        forget(tails, models, tasks, agentLines, pane.paneId, liveAgentOf(pane) === null);
       }
       // Identity beats an earlier guess even when the exact rollout does not
       // exist yet. An unidentified Codex pane must not retain guessed text.
@@ -515,7 +558,7 @@ function prune(
         (liveAgentOf(pane) !== null && fact !== null && fact !== paneSessions.get(pane.paneId)) ||
         (liveAgentOf(pane) === "codex" && fact === null)
       ) {
-        forget(tails, models, pane.paneId, false);
+        forget(tails, models, tasks, agentLines, pane.paneId, false);
       }
       // The floor moves only when the occupant does: first sight of the pane,
       // or a generation change. A pane merely doing something (`ran` going
@@ -527,19 +570,24 @@ function prune(
       paneGenerations.set(pane.paneId, { agent: liveAgentOf(pane), ran: pane.hasRun, seenAt });
     }
   }
-  return { tails, models };
+  return { tails, models, tasks, agentLines };
 }
 
 /**
  * One batch, at most one in flight. The fingerprint is claimed BEFORE the
- * await so a repeat of the same state cannot re-send it; a rejection keeps
- * that claim on purpose — retrying every poll would be the interval this
- * module exists to avoid, and a missing tail is cosmetic.
+ * await so a repeat of the same state cannot immediately re-send it. Exact
+ * sessions refresh on the existing process poll even without a phase change:
+ * another user prompt or a delayed transcript write need not change that phase.
  */
 async function run(): Promise<void> {
   const tabs = tabViews.peek();
   const fingerprint = fingerprintOf(tabs);
-  if (fingerprint === sentFingerprint) {
+  const unchanged = fingerprint === sentFingerprint;
+  if (
+    unchanged &&
+    (Date.now() - sentAt < EXACT_REFRESH_MS ||
+      !tabs.some((tab) => panesOf(tab).some((pane) => liveAgentOf(pane) && pane.sessionId)))
+  ) {
     return;
   }
   // Forgetting comes first, and unconditionally — a tail that outlives its
@@ -549,7 +597,12 @@ async function run(): Promise<void> {
   // would forget every pane in the window.
   if (tabs.length > 0) {
     const pruned = prune(
-      { tails: paneTails.value, models: paneModels.value },
+      {
+        tails: paneTails.value,
+        models: paneModels.value,
+        tasks: paneTasks.value,
+        agentLines: paneAgentLines.value,
+      },
       tabs,
       livePaneIds(tabs),
       Date.now(),
@@ -567,6 +620,12 @@ async function run(): Promise<void> {
     if (pruned.models.size !== paneModels.value.size) {
       paneModels.value = pruned.models;
     }
+    if (pruned.tasks.size !== paneTasks.value.size) {
+      paneTasks.value = pruned.tasks;
+    }
+    if (pruned.agentLines.size !== paneAgentLines.value.size) {
+      paneAgentLines.value = pruned.agentLines;
+    }
     // Pruning drops pairings too, so the mirror moves with it.
     publishPairings();
   }
@@ -574,8 +633,9 @@ async function run(): Promise<void> {
     queued = true;
     return;
   }
-  const entries = entriesOf(tabs);
+  const entries = entriesOf(tabs).filter((entry) => !unchanged || entry.request.exact);
   sentFingerprint = fingerprint;
+  sentAt = Date.now();
   if (entries.length === 0) {
     return;
   }
@@ -589,10 +649,33 @@ async function run(): Promise<void> {
     if (epoch === epochAtSend && fingerprintOf(tabViews.peek()) !== fingerprint) {
       queued = true;
     } else if (epoch === epochAtSend) {
-      const next = merged({ tails: paneTails.value, models: paneModels.value }, entries, answers);
+      const next = merged(
+        {
+          tails: paneTails.value,
+          models: paneModels.value,
+          tasks: paneTasks.value,
+          agentLines: paneAgentLines.value,
+        },
+        entries,
+        answers,
+      );
       paneTails.value = next.tails;
       paneModels.value = next.models;
+      paneTasks.value = next.tasks;
+      paneAgentLines.value = next.agentLines;
       publishPairings();
+      entries.forEach((entry, index) => {
+        const answer = answers[index];
+        if (
+          entry.request.agent === "codex" &&
+          entry.request.exact &&
+          answer &&
+          answer.id === entry.request.preferredId &&
+          answer.activity
+        ) {
+          sessionActivityListener?.(entry.paneId, answer.id, answer.activity);
+        }
+      });
     }
   } catch (err) {
     console.warn("Failed to read session tails:", err);
@@ -631,11 +714,12 @@ function cancelTimer(): void {
  * preview both reach this code, and neither may issue the invoke. The flag is
  * read here, at call time, not captured at module load.
  */
-export function installSessionTailSync(): () => void {
+export function installSessionTailSync(onActivity?: SessionActivityListener): () => void {
   if (!electronHostAvailable) {
     return () => {};
   }
   disposeEffect?.();
+  sessionActivityListener = onActivity;
   const dispose = effect(() => {
     // The one dependency: any new `tabViews` identity re-arms the debounce,
     // and `run` decides from the fingerprint whether it was a real change.
@@ -647,6 +731,7 @@ export function installSessionTailSync(): () => void {
     dispose();
     if (disposeEffect === dispose) {
       disposeEffect = null;
+      sessionActivityListener = undefined;
     }
     cancelTimer();
   };
@@ -656,8 +741,10 @@ export function installSessionTailSync(): () => void {
 export function resetSessionTailStore(): void {
   disposeEffect?.();
   disposeEffect = null;
+  sessionActivityListener = undefined;
   cancelTimer();
   sentFingerprint = null;
+  sentAt = 0;
   inFlight = false;
   queued = false;
   epoch += 1;
@@ -670,5 +757,7 @@ export function resetSessionTailStore(): void {
   paneGenerations.clear();
   paneTails.value = new Map();
   paneModels.value = new Map();
+  paneTasks.value = new Map();
+  paneAgentLines.value = new Map();
   paneSessionIds.value = new Map();
 }

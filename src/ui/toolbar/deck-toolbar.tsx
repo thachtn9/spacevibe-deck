@@ -1,3 +1,4 @@
+import { TextEditorButton } from "../../files/text-editor-button";
 import {
   ArrowsOut,
   ChatText,
@@ -8,30 +9,13 @@ import {
   XSquare,
 } from "@phosphor-icons/react";
 import type { ComponentChildren } from "preact";
+import { RETIRED_ACTIONS } from "../../terminal/action-registry";
 import { shortcutLabel } from "../../lib/shortcut-label";
 import { FeatureToolbar } from "./feature-toolbar";
 import type { ToolbarItem, ToolbarItemState } from "./toolbar-item";
 import { toolbarLabel } from "./toolbar-label";
 
-/**
- * The shipping projection of the feature toolbar — the piece that turns app
- * state and app callbacks into `ToolbarItem`s and nothing else.
- *
- * Group contents shrank twice on 2026-08-16. First File explorer, Token usage
- * and Session history left the bar for the docked side panel, which carries
- * its own tab row and its own toggle on the stage strip — putting a second way
- * in on the toolbar would be three controls that say what one tab row already
- * says. Then the pane group itself moved off the bar and into `More`
- * (DL-23.8), so the projection now emits no bar items at all: the toolbar is
- * the `More` control, and every action it offers is a named row with its
- * chord. Overflow by width is left wired but idle — there is nothing on the
- * bar for a narrow window to push off.
- *
- * The toolbar's rules — tooltips, the overflow menu, the `More` control — are
- * `docs/DESIGN-LANGUAGE.md` §23. The 2026-08-14 Browser amendment made the
- * browser's toolbar action a toggle of the browser tab rather than a docked
- * column.
- */
+/** Split and Focus expand stay on the strip; close lives on the focused pane. */
 
 export { toolbarLabel };
 
@@ -57,18 +41,9 @@ interface DeckToolbarProps {
     readonly open: boolean;
     onToggle(): void;
   };
-  /**
-   * Top-tab mode. The global group then rides in the `More` menu instead of
-   * the bar: the sidebar carries it in the rail's own tools row, and this
-   * layout has no rail, so one menu stands in for that row.
-   */
+  /** Top-tab mode exposes global tools directly because it has no rail. */
   readonly compact?: boolean;
-  /**
-   * The rail's tools row is on screen (DL-28, restored 2026-10-07): Electron's
-   * sidebar with a live rail. `More` then carries the pane group only, and the
-   * Prompt Board popover anchors to the rail instead (DL-23.8). Absent on Tauri
-   * and with no live rail, where nothing else holds the global group.
-   */
+  /** The rail owns the global tools and the Prompt Board popover when mounted. */
   readonly railToolsMounted?: boolean;
   /** The browser surface holds the stage — the chip may be open without it. */
   readonly browserActive: boolean;
@@ -80,12 +55,7 @@ interface DeckToolbarProps {
   /** Rendered inside the Prompts control's slot while open. */
   readonly promptPopover?: ComponentChildren;
   readonly updateAction?: ComponentChildren;
-  /**
-   * The external-app split-button (new DL-23.11), built by `App` because it
-   * needs the installed-app scan and the active workspace. Projected in as a
-   * node rather than as state: it is the one control on this bar that owns its
-   * own icon and its own menu, so `ToolbarItem` cannot describe it.
-   */
+  /** Retained for callers; the shipping toolbar omits Open in (DL-23.11). */
   readonly externalApp?: ComponentChildren;
   /**
    * The needs-you chip (DL-27.26, amended 2026-10-06), built by `App` because
@@ -109,12 +79,7 @@ interface DeckToolbarProps {
 }
 
 export function DeckToolbar(props: DeckToolbarProps) {
-  /**
-   * `overflowOrder` is `null` on every one of these since 2026-08-16: they no
-   * longer sit on the bar, so nothing can push them off it. The priority the
-   * numbers used to encode is the render order below, which is what the menu
-   * prints (DL-23.8).
-   */
+  // Null overflow priority keeps these controls directly available at every width.
   const paneItems: ToolbarItem[] = [
     {
       id: "split-row",
@@ -159,10 +124,8 @@ export function DeckToolbar(props: DeckToolbarProps) {
     },
   ];
 
-  // Where the global group stands: in the rail's tools row when one is mounted,
-  // in `More` otherwise — which is also the only anchor the Prompt Board
-  // popover then has, so exactly one of the two ever renders it.
-  const globalInMore = props.compact === true || props.railToolsMounted !== true;
+  // The rail holds global tools when mounted; otherwise they appear directly on the bar.
+  const globalOnBar = props.compact === true || props.railToolsMounted !== true;
 
   const globalItems: ToolbarItem[] = [
     {
@@ -224,22 +187,15 @@ export function DeckToolbar(props: DeckToolbarProps) {
           </button>
         </div>
       ) : null}
+      <TextEditorButton />
       <FeatureToolbar
-        // Nothing is drawn as an icon on the bar any more (DL-23.8): the pane
-        // group lives in `More`, and the global group never rode here in the
-        // first place — the Electron sidebar shows it as the rail's icon row
-        // (DL-28.3) and top-tab mode and Tauri stand the same rows up in
-        // `More`, which is what keeps a second Prompt Board popover off the
-        // screen.
-        items={[]}
-        externalApp={props.externalApp}
+        items={[
+          ...paneItems.filter((item) => item.id !== "close-pane"),
+          ...(globalOnBar ? globalItems.filter((item) => !RETIRED_ACTIONS.has(item.id)) : []),
+        ]}
         attention={props.attention}
         devServers={props.devServers}
         updateAction={props.updateAction}
-        pinnedMenu={globalInMore ? [...paneItems, ...globalItems] : paneItems}
-        // Only while the popover's own row lives in the menu; with the rail's
-        // tools mounted, its row or collapsed button is the anchor instead.
-        pinnedMenuAnchored={globalInMore && props.promptsOpen ? props.promptPopover : undefined}
       />
     </>
   );

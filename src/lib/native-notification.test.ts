@@ -1,154 +1,113 @@
-import { describe, expect, it, vi } from "vitest";
-import { createAgentNotificationAdapter, type NotificationClient } from "./native-notification";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import notificationSoundUrl from "../assets/noti.mp3";
+import { AGENT_SOUND_COOLDOWN_MS, createAgentNotificationAdapter } from "./native-notification";
 
-function makeClient(overrides: Partial<NotificationClient> = {}): NotificationClient & {
-  isPermissionGranted: ReturnType<typeof vi.fn>;
-  requestPermission: ReturnType<typeof vi.fn>;
-  sendNotification: ReturnType<typeof vi.fn>;
-} {
-  return {
-    isPermissionGranted: vi.fn().mockResolvedValue(false),
-    requestPermission: vi.fn().mockResolvedValue("denied"),
-    sendNotification: vi.fn(),
-    ...overrides,
-  } as NotificationClient & {
-    isPermissionGranted: ReturnType<typeof vi.fn>;
-    requestPermission: ReturnType<typeof vi.fn>;
-    sendNotification: ReturnType<typeof vi.fn>;
-  };
-}
+const shell = vi.hoisted(() => ({
+  isPermissionGranted: vi.fn(),
+  requestPermission: vi.fn(),
+  sendNotification: vi.fn(),
+}));
+vi.mock("../host/shell-host", () => shell);
 
-describe("createAgentNotificationAdapter", () => {
-  describe("already granted", () => {
-    it("requestPermission() returns true without prompting", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(true),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
-      const granted = await adapter.requestPermission();
-
-      expect(granted).toBe(true);
-      expect(client.requestPermission).not.toHaveBeenCalled();
+describe("agent notification sound", () => {
+  it("loads the bundled MP3 lazily and never calls OS notification APIs", async () => {
+    const play = vi.fn().mockResolvedValue(undefined);
+    const Audio = vi.fn(function () {
+      return { currentTime: 0, play };
     });
+    vi.stubGlobal("Audio", Audio);
+    const adapter = createAgentNotificationAdapter();
+    expect(Audio).not.toHaveBeenCalled();
 
-    it("send() calls sendNotification once", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(true),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+    await adapter.send({ title: "Workspace", body: "Agent finished" });
 
-      await adapter.send({ title: "Agent finished", body: "Workspace foo" });
-
-      expect(client.sendNotification).toHaveBeenCalledOnce();
-      expect(client.sendNotification).toHaveBeenCalledWith({
-        title: "Agent finished",
-        body: "Workspace foo",
-      });
-    });
+    expect(Audio).toHaveBeenCalledWith(notificationSoundUrl);
+    expect(play).toHaveBeenCalledOnce();
+    expect(shell.isPermissionGranted).not.toHaveBeenCalled();
+    expect(shell.requestPermission).not.toHaveBeenCalled();
+    expect(shell.sendNotification).not.toHaveBeenCalled();
   });
 
-  describe("grant flow", () => {
-    it("requestPermission() returns true when the user grants", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(false),
-        requestPermission: vi.fn().mockResolvedValue("granted"),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+  it("restarts the same player for subsequent alerts instead of stacking players", async () => {
+    const audio = { currentTime: 1.5, play: vi.fn().mockResolvedValue(undefined) };
+    const createAudio = vi.fn(() => audio);
+    let now = 0;
+    const adapter = createAgentNotificationAdapter(createAudio, () => now);
 
-      const granted = await adapter.requestPermission();
+    await adapter.send({ title: "First" });
+    expect(audio.currentTime).toBe(0);
+    audio.currentTime = 0.5;
+    now += AGENT_SOUND_COOLDOWN_MS;
+    await adapter.send({ title: "Second" });
 
-      expect(granted).toBe(true);
-      expect(client.requestPermission).toHaveBeenCalledOnce();
-    });
+    expect(audio.currentTime).toBe(0);
+    expect(createAudio).toHaveBeenCalledOnce();
+    expect(audio.play).toHaveBeenCalledTimes(2);
   });
 
-  describe("deny flow", () => {
-    it("requestPermission() returns false when the user denies", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(false),
-        requestPermission: vi.fn().mockResolvedValue("denied"),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+  it("collapses unrelated alerts arriving within the global cooldown", async () => {
+    const audio = { currentTime: 0, play: vi.fn().mockResolvedValue(undefined) };
+    let now = 10_000;
+    const adapter = createAgentNotificationAdapter(
+      () => audio,
+      () => now,
+    );
 
-      const granted = await adapter.requestPermission();
+    await adapter.send({ title: "First pane" });
+    now += AGENT_SOUND_COOLDOWN_MS - 1;
+    await adapter.send({ title: "Second pane" });
+    now += 1;
+    await adapter.send({ title: "Third pane" });
 
-      expect(granted).toBe(false);
-    });
-
-    it("a subsequent send() does not call sendNotification", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(false),
-        requestPermission: vi.fn().mockResolvedValue("denied"),
-      });
-      const adapter = createAgentNotificationAdapter(client);
-
-      await adapter.requestPermission();
-      await adapter.send({ title: "Agent finished" });
-
-      expect(client.sendNotification).not.toHaveBeenCalled();
-    });
+    expect(audio.play).toHaveBeenCalledTimes(2);
   });
 
-  describe("revoked between grant and send", () => {
-    it("send() is a no-op when permission is no longer granted at send time", async () => {
-      let granted = true;
-      const client = makeClient({
-        isPermissionGranted: vi.fn(() => Promise.resolve(granted)),
-      });
-      const adapter = createAgentNotificationAdapter(client);
-
-      // Permission was granted earlier...
-      expect(await adapter.requestPermission()).toBe(true);
-      // ...but revoked before the send happens.
-      granted = false;
-
-      await adapter.send({ title: "Agent finished" });
-
-      expect(client.sendNotification).not.toHaveBeenCalled();
+  it("does not start a second player while the first play request is pending", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    const audio = { currentTime: 0, play: vi.fn(() => pending) };
+    const adapter = createAgentNotificationAdapter(() => audio);
+
+    const first = adapter.send({ title: "First pane" });
+    await adapter.send({ title: "Second pane" });
+    expect(audio.play).toHaveBeenCalledOnce();
+
+    release();
+    await first;
   });
 
-  describe("API rejects/throws", () => {
-    it("requestPermission() returns false when isPermissionGranted rejects", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockRejectedValue(new Error("plugin unavailable")),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+  it("contains playback rejection and allows the next alert to retry", async () => {
+    const play = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Audio unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const adapter = createAgentNotificationAdapter(() => ({ currentTime: 0, play }));
 
-      await expect(adapter.requestPermission()).resolves.toBe(false);
-    });
+    await expect(adapter.send({ title: "First" })).resolves.toBeUndefined();
+    await expect(adapter.send({ title: "Second" })).resolves.toBeUndefined();
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(shell.sendNotification).not.toHaveBeenCalled();
+  });
 
-    it("requestPermission() returns false when requestPermission rejects", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(false),
-        requestPermission: vi.fn().mockRejectedValue(new Error("denied by OS")),
-      });
-      const adapter = createAgentNotificationAdapter(client);
+  it("contains player construction failure and retries on the next alert", async () => {
+    const play = vi.fn().mockResolvedValue(undefined);
+    const createAudio = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("Audio unavailable");
+      })
+      .mockReturnValueOnce({ currentTime: 0, play });
+    const adapter = createAgentNotificationAdapter(createAudio);
 
-      await expect(adapter.requestPermission()).resolves.toBe(false);
-    });
-
-    it("send() is a controlled no-op when isPermissionGranted rejects", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockRejectedValue(new Error("plugin unavailable")),
-      });
-      const adapter = createAgentNotificationAdapter(client);
-
-      await expect(adapter.send({ title: "Agent finished" })).resolves.toBeUndefined();
-      expect(client.sendNotification).not.toHaveBeenCalled();
-    });
-
-    it("send() is a controlled no-op when sendNotification throws synchronously", async () => {
-      const client = makeClient({
-        isPermissionGranted: vi.fn().mockResolvedValue(true),
-        sendNotification: vi.fn(() => {
-          throw new Error("OS notification center unavailable");
-        }),
-      });
-      const adapter = createAgentNotificationAdapter(client);
-
-      await expect(adapter.send({ title: "Agent finished" })).resolves.toBeUndefined();
-    });
+    await expect(adapter.send({ title: "First" })).resolves.toBeUndefined();
+    await adapter.send({ title: "Second" });
+    expect(play).toHaveBeenCalledOnce();
   });
 });

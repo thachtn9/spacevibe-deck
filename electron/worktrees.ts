@@ -60,6 +60,8 @@ export type RepositoryScan =
        * a plain folder, which is what Deck shows today anyway.
        */
       readonly kind: "plain";
+      /** Exact opened directory after resolving aliases; presentation only. */
+      readonly canonicalPath?: string;
       readonly reason: string;
     };
 
@@ -234,6 +236,16 @@ async function isSameDirectory(a: string, b: string): Promise<boolean> {
  * it on purpose in `git/changes.ts`, bounded and read-only; the rail never does.
  */
 export async function scanRepository(path: string): Promise<RepositoryScan> {
+  const [scan, canonical] = await Promise.all([
+    scanRepositoryAt(path),
+    path ? realpath(path).catch(() => null) : Promise.resolve(null),
+  ]);
+  return scan.kind === "plain" && canonical && canonical !== path
+    ? { ...scan, canonicalPath: canonical }
+    : scan;
+}
+
+async function scanRepositoryAt(path: string): Promise<RepositoryScan> {
   if (path.length === 0) {
     return { kind: "plain", reason: "no path" };
   }

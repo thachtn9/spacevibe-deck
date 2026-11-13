@@ -41,14 +41,20 @@ export function SessionsList({ onResume }: SessionsListProps) {
     project: null,
   });
   const projects = distinctProjects(agentFiltered);
+  const selectedProject = projects.includes(sessionProjectFilter.value ?? "")
+    ? sessionProjectFilter.value
+    : null;
   const rows = filterSessions(sessionEntries.value, {
     agent: sessionAgentFilter.value,
-    project: sessionProjectFilter.value,
+    project: selectedProject,
   });
   const capped = cappedAgents(sessionTotals.value, sessionLimit.value);
 
   return (
     <div class="sessions-list" aria-busy={sessionsLoadState.value.status === "loading"}>
+      <div class="sessions-list__filter-row">
+        <span class="sessions-list__note">CLI Manager</span>
+      </div>
       {sessionsLoading.value ? (
         // A status line ABOVE the list, not a state that replaces it —
         // mirrors usage-status.tsx: what is already known stays on screen
@@ -68,7 +74,7 @@ export function SessionsList({ onResume }: SessionsListProps) {
           <select
             class="sessions-list__project"
             aria-label="Filter by project"
-            value={sessionProjectFilter.value ?? ""}
+            value={selectedProject ?? ""}
             onChange={(event) => {
               const value = (event.target as HTMLSelectElement).value;
               sessionProjectFilter.value = value === "" ? null : value;
@@ -104,14 +110,14 @@ export function SessionsList({ onResume }: SessionsListProps) {
           {sessionEntries.value.length === 0
             ? // Spec §3.2: name where Deck looked, so an empty list reads
               // as "found nothing" rather than "broken".
-              "No sessions found in ~/.claude/projects or ~/.codex/sessions."
+              "No Codex or AGY sessions returned by CLI Manager."
             : "No sessions match this filter."}
         </p>
       ) : rows.length > 0 ? (
         <ul class="sessions-list__rows" aria-label="Past sessions">
           {rows.map((entry) => (
             <SessionRow
-              key={`${entry.agent}-${entry.sessionId}`}
+              key={`${entry.agent}-${entry.sessionId}-${entry.manager?.account ?? ""}-${entry.manager?.isClient ?? false}`}
               entry={entry}
               dead={deadProjects.value.has(entry.cwd)}
               homeDir={homeDir}

@@ -86,6 +86,7 @@ describe("caption-overlay marker", () => {
   const HOMES: Record<DesktopPlatform, string> = {
     macos: "/Users/deck",
     windows: "C:\\Users\\Deck",
+    linux: "/home/deck",
     unsupported: "",
   };
 
@@ -118,6 +119,7 @@ describe("caption-overlay marker", () => {
     (sidebar) => {
       electronHost();
       expect(markerFor("windows", sidebar)).toBe(true);
+      expect(markerFor("linux", sidebar)).toBe(true);
     },
   );
 

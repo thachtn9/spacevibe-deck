@@ -1,9 +1,12 @@
 import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
+  Code,
+  FileCode,
   FolderOpen,
   FolderPlus,
   Gear,
+  Globe,
   GitFork,
   Info,
   SquareHalf,
@@ -318,6 +321,10 @@ export interface CardActions {
   onSplitHere(workspacePath: string): void;
   /** `open_in_app` with the catalog's `finder` entry. */
   onOpenFolder?(path: string): void;
+  onOpenVSCode?(path: string): void;
+  onViewCode?(path: string): void;
+  onOpenWeb?(path: string, configure?: boolean): void;
+  onOpenFolderTerminal?(path: string): Promise<boolean>;
   /** The installed app each OS row will actually launch, for its detail line. */
   readonly filesAppLabel?: string;
   /**
@@ -380,9 +387,12 @@ type MenuRow = ActionRow | NoteRow;
  *   collision is reduced rather than removed.
  */
 const ACTION_GLYPHS = {
+  web: Globe,
   split: SquareHalf,
   branch: GitFork,
   finder: FolderOpen,
+  vscode: Code,
+  code: FileCode,
   terminal: TerminalWindow,
   agents: Gear,
   // `Open another project…` — a folder being added, distinct from `finder`'s
@@ -477,12 +487,38 @@ export function actionGroups(
     },
   ];
   const os: ActionRow[] = [];
+  const openWeb = actions.onOpenWeb;
+  if (openWeb !== undefined) {
+    os.push({ kind: "action", id: "browser-extension", title: "Browser Extension", detail: "Connect Chrome to Deck", glyph: "web", run: () => openWeb(subject.path) });
+  }
+  const viewCode = actions.onViewCode;
+  if (viewCode !== undefined) {
+    os.push({
+      kind: "action",
+      id: "view-code",
+      title: "View code",
+      detail: "Browse this folder in Deck",
+      glyph: "code",
+      run: () => viewCode(subject.path),
+    });
+  }
+  const openVSCode = actions.onOpenVSCode;
+  if (openVSCode !== undefined) {
+    os.push({
+      kind: "action",
+      id: "vscode",
+      title: "Open in VS Code",
+      detail: "Open this folder in VS Code",
+      glyph: "vscode",
+      run: () => openVSCode(subject.path),
+    });
+  }
   const openFolder = actions.onOpenFolder;
   if (openFolder !== undefined) {
     os.push({
       kind: "action",
       id: "finder",
-      title: `Open in ${actions.filesAppLabel ?? "Finder"}`,
+      title: "Open folder",
       detail: "Reveal this folder",
       glyph: "finder",
       run: () => {

@@ -1,3 +1,7 @@
+import {
+  persistentTerminal,
+  persistentTerminalsAvailable,
+} from "../terminal/persistent-terminal-client";
 import { resumeLookup } from "../host/resume-host";
 import { defaultFileClient } from "../files/file-client";
 import { defaultPtyClient } from "../terminal/pty-client";
@@ -24,6 +28,7 @@ export function restoreDeps(deps: {
 }): RestoreDeps {
   const records = deps.records;
   return {
+    ...(persistentTerminalsAvailable() ? { persistent: persistentTerminal } : {}),
     manager: deps.manager,
     files: deps.files,
     dirsExist: (paths) => defaultPtyClient.dirsExist(paths),

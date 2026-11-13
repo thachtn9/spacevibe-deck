@@ -10,7 +10,7 @@ import type { DockTabDescriptor, DockTabId } from "./dock-tab-registry";
 
 interface DockTabsProps {
   readonly items: readonly DockTabDescriptor[];
-  readonly active: DockTabId;
+  readonly active: DockTabId | null;
   onSelect(id: DockTabId): void;
 }
 

@@ -11,13 +11,14 @@ import { ACTIVE_AGENT_IDS, AGENT_DEFINITIONS } from "./agent-registry";
 const KNOWN_IDS = AGENT_DEFINITIONS.map((agent) => agent.id);
 
 describe("agent registry", () => {
-  it("keeps every id unique and equal to the binary it launches", () => {
+  it("keeps ids unique and launch commands consistent with their configured binary", () => {
     expect(new Set(KNOWN_IDS).size).toBe(KNOWN_IDS.length);
     for (const agent of AGENT_DEFINITIONS) {
-      expect((agent.defaultCommand ?? agent.id).split(" ")[0]).toBe(agent.id);
+      const binary = agent.binary ?? agent.id;
+      expect((agent.defaultCommand ?? binary).split(" ")[0]).toBe(binary);
       // The bare form may carry flags Deck always types (codex's
       // `-c tui.animations=false`, DECK-121); the binary is still the id.
-      expect(agent.resume.bare.split(" ")[0]).toBe(agent.id);
+      expect(agent.resume.bare.split(" ")[0]).toBe(binary);
     }
   });
 

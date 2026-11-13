@@ -1,3 +1,4 @@
+import { persistentTerminal } from "./persistent-terminal-client";
 import { invoke, listen, type UnlistenFn } from "../host/bridge";
 import type { PaneProcessInfo } from "../lib/process-info";
 import type { AgentProcessMatcher } from "../lib/agent-catalog";
@@ -29,7 +30,10 @@ export interface PtyClient {
    * `?.()`. That optional call is how "this host cannot do it" is said, the way
    * `sessionCwds` below says it.
    */
-  killForeground?(id: number): Promise<void>;
+  killForeground?(
+    id: number,
+    expected?: { processId: number; sessionId: string; accountId: string },
+  ): Promise<void>;
   /** Fresh pty_info; throws on IPC failure (poll keeps last-known on catch). */
   ptyInfo(
     ids: readonly number[],
@@ -124,8 +128,10 @@ export function createTauriPtyClient(): PtyClient {
       }
     : {};
   return {
-    spawnShell({ cols, rows, cwd }) {
-      return invoke<number>("spawn_shell", { cols, rows, cwd });
+    async spawnShell({ cols, rows, cwd }) {
+      const id = await invoke<number>("spawn_shell", { cols, rows, cwd });
+      await persistentTerminal.register(id);
+      return id;
     },
     writePty(id, data) {
       return invoke("write_pty", { id, data });
@@ -140,8 +146,9 @@ export function createTauriPtyClient(): PtyClient {
     // the ONE production client — both hosts run it, and `invoke` goes through
     // `__deckHost`, which is the Electron path. Its name is historical, so a
     // no-op "for Tauri" here would disable Stop on the only host that has it.
-    killForeground(id) {
-      return invoke("pty_kill_foreground", { id });
+    killForeground(id, expected) {
+      const { processId, sessionId, accountId } = expected ?? {};
+      return invoke("pty_kill_foreground", { id, processId, sessionId, accountId });
     },
     async ptyInfo(ids, agentMatchers = [], waitForCwd = true) {
       if (ids.length === 0) {
@@ -154,6 +161,13 @@ export function createTauriPtyClient(): PtyClient {
       });
       return infos.map((info) => ({
         ...info,
+        agySessionId:
+          available &&
+          info.agent === "agy" &&
+          typeof info.agySessionId === "string" &&
+          CODEX_THREAD_ID.test(info.agySessionId)
+            ? info.agySessionId
+            : null,
         codexSessionId:
           available &&
           info.agent === "codex" &&

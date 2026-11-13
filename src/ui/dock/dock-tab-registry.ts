@@ -1,10 +1,10 @@
-import { ClockCounterClockwise, Gauge, TreeView } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Gauge } from "@phosphor-icons/react";
 import type { DeckIconComponent } from "../controls/deck-icon";
 import type { ActionId } from "../../terminal/action-registry";
 import type { DockTab } from "../../settings/settings-schema";
 
 /**
- * The three surfaces the docked side panel can host. Order of `DOCK_TABS`
+ * The surfaces the docked side panel can host. Order of `DOCK_TABS`
  * below is display order everywhere a caller iterates it.
  *
  * An alias, not a second declaration: the union is owned by
@@ -21,33 +21,14 @@ export interface DockTabDescriptor {
    * The action whose chord the chip's tooltip prints (DL-23.1). It is the
    * REGISTRY id, not a literal chord, so a rebind reaches the tooltip and a
    * platform never sees the other one's notation — `shortcutLabel` resolves
-   * both. All three tabs have one since 2026-08-19, when `toggle-sessions`
-   * was added for exactly this: a tab whose tooltip could print no chord was
-   * the odd one out of three otherwise identical chips.
+   * both. Each visible tab has an action whose chord can resolve here.
    */
   readonly action: ActionId;
 }
 
-/**
- * The panel's fixed tab list, explorer / usage / sessions. Labels are
- * sentence case (DL-4.4, §8); icons are the same ones `deck-toolbar.tsx`
- * already draws for these three features (`TreeView`, `Gauge`,
- * `ClockCounterClockwise`),
- * so a user does not have to learn a second icon for a surface they already
- * recognise from the toolbar.
- *
- * Frozen because this is a fixed set, not app state — nothing ever appends,
- * removes or reorders it at runtime. `availableDockTabs` is how a caller
- * narrows it; this constant itself never changes shape.
- */
+/** Visible dock surfaces; the persisted explorer id remains readable for old settings. */
 export const DOCK_TABS: readonly DockTabDescriptor[] = Object.freeze([
-  {
-    id: "explorer",
-    label: "File explorer",
-    icon: TreeView,
-    action: "toggle-explorer",
-  },
-  { id: "usage", label: "Token usage", icon: Gauge, action: "toggle-usage" },
+  { id: "usage", label: "Quota", icon: Gauge, action: "toggle-usage" },
   {
     id: "sessions",
     label: "Session history",
@@ -63,19 +44,11 @@ export const DOCK_TABS: readonly DockTabDescriptor[] = Object.freeze([
  * control, so the tab is omitted rather than shown disabled.
  */
 export function availableDockTabs(sessionsAvailable: boolean): readonly DockTabDescriptor[] {
-  if (sessionsAvailable) {
-    return DOCK_TABS;
-  }
-  return DOCK_TABS.filter((tab) => tab.id !== "sessions");
+  return sessionsAvailable ? DOCK_TABS : DOCK_TABS.filter((tab) => tab.id !== "sessions");
 }
 
-/**
- * Falls back to `"explorer"` when `requested` is not in the available set —
- * most often a persisted `"sessions"` selection on a host with no
- * `sessions_list`. Explorer is the panel's original, always-available
- * surface, so it is the one safe default to resolve to.
- */
+/** Retired or unsupported selections fall back to the always-available quota view. */
 export function resolveDockTab(requested: DockTabId, sessionsAvailable: boolean): DockTabId {
   const available = availableDockTabs(sessionsAvailable);
-  return available.some((tab) => tab.id === requested) ? requested : "explorer";
+  return available.some((tab) => tab.id === requested) ? requested : "usage";
 }

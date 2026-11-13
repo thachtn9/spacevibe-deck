@@ -4,6 +4,23 @@
 
 <h1 align="center">SpaceVibe Deck</h1>
 
+This checkout adds Linux support to upstream **2.10.0**, keeping Deck's existing UI and
+features as the baseline for later customization. The original MIT license and attribution
+remain in [LICENSE](LICENSE).
+
+On Linux, after installing the [build prerequisites](docs/operations/linux.md):
+
+```sh
+npm ci
+npm run build:linux
+npm start
+```
+
+Create AppImage and Debian packages with `npm run electron:package:linux`.
+Artifacts are written to `dist-electron-linux/`. Linux does not use upstream's auto-update
+feed. See [Linux setup and troubleshooting](docs/operations/linux.md), including the Ubuntu
+development sandbox limitation. The upstream introduction follows below.
+
 <p align="center">
   <a href="https://github.com/mxrsv/spacevibe-deck/releases/latest"><img src="https://img.shields.io/github/v/release/mxrsv/spacevibe-deck" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5e7df0.svg" alt="License: MIT"></a>

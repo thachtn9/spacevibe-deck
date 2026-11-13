@@ -2,12 +2,12 @@
 
 > For maintainers. Using Deck? See [docs/user/](../user/).
 
-Deck can reopen the tabs that were open at quit and resume each built-in agent's
-conversation, but launch never does it unasked: the board offers the previous session as one
-**Last session** line, and only its **Reopen** runs the restore. Reopening everything by
-default buried the start of a new day under yesterday's agents, so the setting that switched
-it off (`restoreSessions`) went with it and validation drops the stale field. Resume lookup is
-Electron only: the lookup channel has no Tauri counterpart.
+Linux Electron automatically restores the saved tabs and split layouts at launch. If the
+terminal service is still alive, panes reattach to the original PTYs and replay their live
+screens without launching another shell or agent. After reboot, the service's durable metadata
+selects the exact `cli resume <id> --acc <account>` command. A missing or ambiguous identity
+leaves a shell instead of opening a different conversation. Other Electron platforms retain the
+board's **Last session → Reopen** offer. Resume lookup has no Tauri counterpart.
 
 ## The journal
 
@@ -29,8 +29,10 @@ power-off rather than only at a clean quit.
 - While the offer stands, `holdEmpty` keeps the fresh, tabless window from overwriting the
   main record. Without it the journal's first write would erase the offer, and a launch that
   was closed without choosing would offer nothing next time.
-- A deliberate window close clears that window's record, so a closing window's tabs cannot
-  resurrect as ghost tabs on the next boot.
+- Linux UI close flushes and retains its record, then detaches the panes. Other platforms clear
+  the closed window's record. Explicit pane/tab close removes those terminals normally.
+- Linux panes include an epoch-qualified `terminalRef`; tabs also retain their active pane.
+  `terminal-recovery.json` supplies current account/session metadata even when the UI was closed.
 
 ## The last-session offer
 
@@ -59,7 +61,9 @@ tab count and workspace names. The offer ends one of three ways, all in
    workspace is gone is dropped; a pane whose cwd is gone gets a null cwd and skips the
    lookup, because a stale cwd sent into a scanner that ranks by cwd match produces a wrong
    or wasted match.
-4. **One batched `resume_lookup`** with one `{ agent, cwd, lastSeenAt }` per surviving
+4. **Linux reattachment first.** A live reference supplies its serialized screen and geometry;
+   the pane mounts before queued output resumes. A dead daemon reference uses exact recovery
+   metadata, with no cwd-ranked session fallback. Other panes use **one batched `resume_lookup`** with one `{ agent, cwd, lastSeenAt }` per surviving
    built-in-agent pane, answered positionally.
 5. **Materialize** each tab sequentially through `MaterializeIntent.paneCommands`, so each
    pane types its own resume command. A tab that throws is skipped and the rest continue.
@@ -76,7 +80,8 @@ the chip-only behavior. Secondary records cannot raise the Board, and no Board r
 at least one terminal tab survives. The decision is recorded in
 [DECK-33](https://linear.app/mxrsv/issue/DECK-33).
 
-Scrollback, unsaved edits and window placement never restore. The rail's remembered rows use
+Live Linux reattachment restores up to 2,000 lines of scrollback. Scrollback across reboot,
+unsaved edits and window placement do not restore. The rail's remembered rows use
 the same core for one workspace, without the marker; they also restore each pane's saved task
 prompt, since the archive carries the same session tabs as the last-session offer.
 

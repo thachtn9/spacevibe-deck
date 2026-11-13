@@ -79,14 +79,14 @@ describe("SidebarToggle", () => {
     expect(host.querySelector(".sidebar-new")).toBeNull();
   });
 
-  it("shows DEV for a local build even before the version loads", () => {
+  it("shows the owner label for a local build even before the version loads", () => {
     initializeDesktopEnvironment({ platform: "macos", homeDir: "/Users/dev", isDevelopment: true });
     act(() => render(<SidebarFrameActions collapsed={false} onToggle={vi.fn()} />, host));
-    expect(host.querySelector(".sidebar-brand__dev")?.textContent).toBe("DEV");
+    expect(host.querySelector(".sidebar-brand__dev")?.textContent).toBe("ThachTN9");
     act(() => {
       appVersion.value = "43.3.0";
     });
-    expect(host.querySelector(".sidebar-brand__dev")?.textContent).toBe("DEV");
+    expect(host.querySelector(".sidebar-brand__dev")?.textContent).toBe("ThachTN9");
     expect(host.querySelector(".sidebar-brand__version")).toBeNull();
   });
 

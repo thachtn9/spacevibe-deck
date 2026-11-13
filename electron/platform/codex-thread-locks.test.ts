@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { parseCodexLocks, selectCodexThread, processCodexSessions } from "./codex-thread-locks";
+import { linuxCodexSession } from "./linux-codex-session";
 
 vi.mock("node:child_process", () => ({ execFile: vi.fn() }));
+vi.mock("./linux-codex-session", () => ({ linuxCodexSession: vi.fn() }));
 const HOME = "/home/test";
 const MAIN = "01900000-0000-7000-8000-000000000001";
 const CHILD = "01900000-0000-7000-8000-000000000002";
@@ -81,7 +83,17 @@ describe("Codex thread writer locks", () => {
     ) => {
       cb(Object.assign(new Error("lsof unavailable"), { code: "ENOENT" }), `p42\n${lock(MAIN)}\n`);
     }) as typeof execFile);
-    expect(await processCodexSessions([42], HOME, "linux")).toEqual(new Map());
+    expect(await processCodexSessions([42], HOME, "darwin")).toEqual(new Map());
+  });
+  it("uses each Linux CLI's own descendants for identity instead of global writer locks", async () => {
+    vi.mocked(linuxCodexSession).mockImplementation(async (pid) => (pid === 42 ? MAIN : null));
+    expect(await processCodexSessions([42, 43, 42, -1], HOME, "linux")).toEqual(
+      new Map([[42, MAIN]]),
+    );
+    expect(linuxCodexSession).toHaveBeenCalledTimes(2);
+    expect(linuxCodexSession).toHaveBeenCalledWith(42);
+    expect(linuxCodexSession).toHaveBeenCalledWith(43);
+    expect(execFile).not.toHaveBeenCalled();
   });
   it.each([
     ["cli", { subagent: { parent_thread_id: MAIN } }, MAIN],

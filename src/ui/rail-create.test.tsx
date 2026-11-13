@@ -37,22 +37,23 @@ function mount(stream: readonly RailStreamGroup[]): void {
   });
 }
 
-describe("RailCreate worktree target (ROW-C1, ROW-C7)", () => {
-  it("names the focused project in the Worktree tooltip", () => {
+describe("RailCreate folder-only controls", () => {
+  it("omits Agent and Worktree with a focused repository", () => {
     mount(STREAM);
     const button = host.querySelector('.rail-create__button[data-verb="worktree"]');
 
-    expect(button?.getAttribute("aria-label") ?? button?.getAttribute("title")).toBe(
-      "New worktree in repo",
-    );
+    expect(button).toBeNull();
+    expect(host.querySelector('[data-verb="agent"]')).toBeNull();
+    expect(host.querySelector('[data-verb="folder"]')).not.toBeNull();
   });
 
-  it("falls back to plain copy with no repository", () => {
+  it("offers Folder when no repository is open", () => {
     mount([]);
     const button = host.querySelector('.rail-create__button[data-verb="worktree"]');
 
-    expect(button?.getAttribute("aria-label") ?? button?.getAttribute("title")).toBe(
-      "New worktree",
+    expect(button).toBeNull();
+    expect(host.querySelector('[data-verb="folder"]')?.getAttribute("aria-label")).toBe(
+      "Open a folder in a new terminal tab",
     );
   });
 });

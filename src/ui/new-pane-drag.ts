@@ -44,7 +44,17 @@ export interface NewPaneDropDeps {
 
 export interface NewPaneDragOptions extends NewPaneDropDeps {
   /** Ghost text; the name of the thing being created, not of a pane. */
-  ghostLabel: string;
+  ghostLabel: string | (() => string);
+  /** Optional delegated-source guard, evaluated once on pointer down. */
+  canStart?(event: PointerEvent): boolean;
+  /** Use the whole pane for actions that do not split along an edge. */
+  targetShape?: "edge" | "full";
+  dropLabel?: string;
+  folderTargets?(): readonly { readonly path: string; readonly rect: PaneRect }[];
+  onFolderDrop?(path: string): void;
+  headerTargets?(): readonly PaneRect[];
+  onHeaderDrop?(paneId: number): void;
+  headerDropLabel?: string;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -60,9 +70,11 @@ export function createNewPaneDragController(
   let ghost: HTMLElement | null = null;
   let overlay: HTMLElement | null = null;
   let target: { id: number; edge: Edge } | null = null;
+  let folderTarget: string | null = null;
+  let headerTarget: number | null = null;
 
   function onPointerDown(event: PointerEvent): void {
-    if (event.button !== 0 || pointerId !== null) {
+    if (event.button !== 0 || pointerId !== null || opts.canStart?.(event) === false) {
       return;
     }
     pointerId = event.pointerId;
@@ -81,9 +93,13 @@ export function createNewPaneDragController(
     document.body.classList.add("is-pane-dragging");
     ghost = document.createElement("div");
     ghost.className = "pane-drag-ghost";
-    ghost.textContent = opts.ghostLabel;
+    ghost.textContent = typeof opts.ghostLabel === "function" ? opts.ghostLabel() : opts.ghostLabel;
     overlay = document.createElement("div");
     overlay.className = "drop-overlay";
+    if (opts.dropLabel) {
+      overlay.classList.add("quota-account-drop");
+      overlay.textContent = opts.dropLabel;
+    }
     overlay.style.display = "none";
     document.body.append(ghost, overlay);
     opts.onDragStart?.();
@@ -97,6 +113,29 @@ export function createNewPaneDragController(
   }
 
   function hitTest(x: number, y: number): void {
+    folderTarget = null;
+    headerTarget = null;
+    const folder = opts
+      .folderTargets?.()
+      .find(({ rect }) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+    if (folder) {
+      target = null;
+      folderTarget = folder.path;
+      showOverlay(folder.rect, "right", true);
+      if (overlay) overlay.textContent = "Open account in a new tab";
+      return;
+    }
+    const header = opts
+      .headerTargets?.()
+      .find((rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+    if (header) {
+      target = null;
+      headerTarget = header.id;
+      showOverlay(header, "right", true);
+      if (overlay) overlay.textContent = opts.headerDropLabel ?? "Switch account";
+      return;
+    }
+    if (overlay) overlay.textContent = opts.dropLabel ?? "";
     // `null` source: no slot is excluded, unlike a pane dragged onto itself.
     const hit = dropTargetAt(opts.slotRects(), x, y, null);
     if (hit === null) {
@@ -108,7 +147,7 @@ export function createNewPaneDragController(
     showOverlay(hit.rect, hit.edge);
   }
 
-  function showOverlay(rect: PaneRect, edge: Edge): void {
+  function showOverlay(rect: PaneRect, edge: Edge, full = false): void {
     if (!overlay) {
       return;
     }
@@ -118,7 +157,9 @@ export function createNewPaneDragController(
     let top = rect.top;
     let width = fullWidth;
     let height = fullHeight;
-    if (edge === "left") {
+    if (full || opts.targetShape === "full") {
+      // A new-tab drop does not suggest a split along an edge.
+    } else if (edge === "left") {
       width = fullWidth / 2;
     } else if (edge === "right") {
       left = rect.left + fullWidth / 2;
@@ -129,7 +170,7 @@ export function createNewPaneDragController(
       top = rect.top + fullHeight / 2;
       height = fullHeight / 2;
     }
-    overlay.style.display = "block";
+    overlay.style.display = opts.dropLabel ? "grid" : "block";
     overlay.style.left = `${left}px`;
     overlay.style.top = `${top}px`;
     overlay.style.width = `${width}px`;
@@ -182,13 +223,20 @@ export function createNewPaneDragController(
       return;
     }
     const wasDragging = dragging;
+    if (wasDragging) hitTest(event.clientX, event.clientY);
     const dropTarget = target;
+    const folder = folderTarget;
+    const header = headerTarget;
     cleanup();
     if (!wasDragging) {
       return;
     }
     swallowNextClick();
-    if (dropTarget) {
+    if (folder) {
+      opts.onFolderDrop?.(folder);
+    } else if (header !== null) {
+      opts.onHeaderDrop?.(header);
+    } else if (dropTarget) {
       opts.onDrop(dropTarget.id, dropTarget.edge);
     }
   }
@@ -218,6 +266,8 @@ export function createNewPaneDragController(
     ghost = null;
     overlay = null;
     target = null;
+    folderTarget = null;
+    headerTarget = null;
     pointerId = null;
     dragging = false;
   }

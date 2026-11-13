@@ -269,23 +269,27 @@ A project cluster goes where the user drags it and stays there
 
 ## The checkout tree
 
-On Electron a cluster's checkouts are label lines with their session rows beneath
+On Electron Git checkouts show their branch label above their sessions, including the primary checkout
 ([`worktree-card.tsx`](../../src/ui/worktree-card.tsx), DL-27.28); Tauri stays on
 [`RepositoryRail`](../../src/ui/repository-rail.tsx), whose git and session sources it lacks.
 The checkout card, its disclosure and its folded strip retired on 2026-10-07; the project
 header's caret is the only fold.
 
-- **The label line names the checkout by its branch** (`checkoutLine`), tagged `worktree` for a
-  linked worktree and `folder` for a folder git does not know. Accessible names, the actions
-  menu and the Agent Board still name a checkout through `checkoutLabel` — a linked worktree
-  there is its folder — so the line and the accessible name can differ by design.
-- **A row's first line is its task label:** the tab name, else the session's first prompt,
-  else the agent label (`buildCardEntries`). The first prompt is `SessionEntry.title`, Claude
-  Code and Codex only, joined on the pane's contract `sessionId` (`sessionTitlesFor`), never
-  on a tail pairing. The session list is scanned only when Sessions or the Open board opens,
-  so the rail asks for a scan itself when an unnamed pane's session is unknown
-  ([`requestSessionTitles`](../../src/sessions/sessions-store.ts)), at most once per 30s and
-  only when `tabViews` changes. Until it lands the row reads the agent label.
+Displayed projects nest beneath their nearest displayed parent folder, comparing both
+checkout paths and opened history paths so symlink spellings still match. This is a
+presentation hierarchy: folding a parent hides its descendants, but selecting or closing
+a project keeps that project's original tab and pane targets.
+
+- **Git checkouts show their branch line**; linked worktrees also carry a `worktree` tag.
+  Plain folders and a primary detached HEAD omit that tier. A remembered project's label opens its launcher when wired.
+  Accessible names and the actions menu retain checkout identity through `checkoutLabel`.
+- **A row's first line is its task label:** the tab name, else the CLI's conversation title
+  or exact recorded session title, else the agent label (`buildCardEntries`). AGY's Linux
+  presence lock joins its real process to the manager entry; no cwd/recency pairing supplies
+  a title. Codex's pane-local OSC title can supply display text when a shared daemon owns
+  its session files; it never supplies a session id, resume target or activity state.
+  Manager-backed titles refresh at most once per 30s while unnamed live panes are present
+  ([`requestSessionTitles`](../../src/sessions/sessions-store.ts)).
 - **The second line is never empty, and always opens with the agent label.** It is the agent
   label · the status, where the status is the newest sentence or, before one, the state word —
   even when the first line is the agent label too. `No signal` means an idle pane the tracker has seen nothing from
@@ -359,18 +363,13 @@ The rail's foot is an icon row above the usage summary (DL-28). What a maintaine
 
 ## One create row, no create control on a tree row
 
-The three verbs live in the [create row](../../src/ui/rail-create.tsx) that
-[`AgentRail`](../../src/ui/agent-rail.tsx) mounts above the scrolling list on Electron, and as
-stacked icons at the top of the collapsed column (DL-27.14, DL-27.29). `Agent` opens the Electron
-[agent launch page](../../src/launcher/agent-launch-page.tsx) on the focused checkout (the
-group `AgentRail` marks `active`, else the active tab's workspace; with neither, the Open
-board) and is the only drag source onto a pane. `Worktree` opens a
-[popover form](../../src/ui/rail-worktree-form.tsx) built on `useWorktreeForm`; `Folder`
-([`addFolderToRail`](../../src/ui/rail-add-folder.ts)) picks a directory. Both record the new path
-in workspace history and rescan it, which is how the rail prints it without a tab, and neither
-starts anything.
+The [create row](../../src/ui/rail-create.tsx) exposes Folder only, above the scrolling list
+on Electron and as one icon above the collapsed column. The picker validates the selected
+folder, opens a shell-only tab through App's existing materialization path, then records it in
+workspace history. Cancellation and launch failure do not add an unopened folder. Agent and
+Worktree buttons are retired; the underlying launcher remains for session actions and shortcuts.
 
-A checkout with nothing open is its label line alone; when a launcher is wired, pressing the
+A linked checkout with nothing open is its label line alone; when a launcher is wired, pressing the
 label opens the launch page on that checkout. A press creates nothing.
 [`resolveAgentLaunchTarget`](../../src/terminal/agent-launch-target.ts) captures `split` only
 when the active tab belongs to that checkout, `new-space` when its tabs sit in the background,
@@ -379,9 +378,11 @@ and `first-pane` when it has none; the page's destination line says which before
 is. The page adds no task-strip item; Back and Escape restore the previous surface
 ([page state](../../src/launcher/agent-launch-page-store.ts)).
 
-Right-click still raises the [checkout actions menu](../../src/ui/worktree-card-menus.tsx).
+Right-click on a project folder header or checkout raises the [checkout actions menu](../../src/ui/worktree-card-menus.tsx).
 Its quick agents open new tabs, `Open shell` opens a new shell tab and `New split here`
-creates a shell split, materializing one pane when no matching tab exists. The page and menu
+creates a shell split, materializing one pane when no matching tab exists. Open in VS Code
+and Open folder target the clicked folder; Linux invokes code with argv or shell.openPath,
+without a login shell. Launch errors reach the existing error notice. The page and menu
 use the same up-to-five [Quick agents selection](../../src/settings/quick-agents.ts): unset
 uses defaults, an explicit empty selection stays empty, and unavailable choices are omitted
 without replacement.

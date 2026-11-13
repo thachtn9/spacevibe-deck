@@ -9,9 +9,13 @@
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import { EVENTS, INVOKABLE_CHANNELS } from "./ipc/channels";
+import { CODE_VIEWER_CHANNELS } from "./code-viewer-policy";
+import { WEB_REVIEW_CHANNELS } from "../src/lib/web-review";
 
 /** Events the main process actually emits — the other half of the door. */
 const LISTENABLE_EVENTS: ReadonlySet<string> = new Set<string>(Object.values(EVENTS));
+const codeViewer = process.argv.includes("--deck-code-viewer");
+const webReview = process.argv.includes("--deck-web-review");
 
 contextBridge.exposeInMainWorld("__deckHost", {
   /**
@@ -27,7 +31,8 @@ contextBridge.exposeInMainWorld("__deckHost", {
    * table this set is built from.
    */
   invoke: (channel: string, payload?: unknown) => {
-    if (!INVOKABLE_CHANNELS.has(channel)) {
+    if (!INVOKABLE_CHANNELS.has(channel) || (codeViewer && !CODE_VIEWER_CHANNELS.has(channel)) ||
+        (webReview && !WEB_REVIEW_CHANNELS.has(channel))) {
       return Promise.reject(new Error(`Deck: refused an unknown host channel "${channel}"`));
     }
     return ipcRenderer.invoke(channel, payload ?? {});

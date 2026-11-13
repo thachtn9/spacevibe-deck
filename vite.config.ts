@@ -15,6 +15,9 @@ export default defineConfig(async () => ({
   // produces a blank window with nothing on stderr.
   base: "./",
   build: {
+    rollupOptions: {
+      input: { main: "index.html", textEditor: "text-editor.html", desktopAgents: "desktop-agents.html", webReview: "web-review.html" },
+    },
     // esbuild 0.25 mis-minifies xterm 6's function-local enum in
     // InputHandler.requestMode: it drops the declaration but leaves a renamed
     // reference behind (`ReferenceError: s is not defined`). OpenTUI sends a

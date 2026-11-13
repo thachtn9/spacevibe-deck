@@ -103,6 +103,7 @@
 }
 
 .asr-stream {
+  --asr-folder-step: 14px;
   display: grid;
   align-content: start;
   /* The one column, declared rather than implicit. An IMPLICIT column is
@@ -115,16 +116,8 @@
      already carry, and it is what makes DL-27.4's "trimmed by the layout"
      true here. */
   grid-template-columns: minmax(0, 1fr);
-  /* The BREAK between one project and the next: 10px here plus the header's
-     own 6px top padding = 16px. It was 4px + 6px = 10px until 2026-09-10,
-     against a 6px hug below — a ratio tuned in 2026-08-17 for a cluster of
-     flat compact rows, where 4px of difference was a visible paragraph break.
-     DL-27.25 then made the tier under the header a bordered CARD, and the same
-     two figures were left spacing a label off a box and a box off the next
-     label: 10 against 6 read as one distance, so the header floated between
-     two cards instead of belonging to one, and the column had no boundary the
-     eye could find without reading the folder glyph. */
-  gap: 10px;
+  /* Child folders share a compact gap; top-level projects add a separate break. */
+  gap: 4px;
   flex: 1;
 }
 
@@ -139,11 +132,14 @@
      and BOTH have to declare the floor or the row simply overflows one level
      further down. */
   grid-template-columns: minmax(0, 1fr);
-  /* One CARD to the next inside a project. It rose from 4px to 6px with the
-     break above (2026-09-10): once the header is pulled onto its first card,
-     4px between two checkouts of one repository is the tightest pair left in
-     the column, and two cards that close up read as one card with a seam. */
-  gap: 6px;
+  /* The folder label stays close to its branch and session rows. */
+  gap: 2px;
+  margin-left: calc(var(--asr-folder-depth, 0) * var(--asr-folder-step));
+}
+
+/* Child folders stay close to their parent; separate top-level projects get a larger break. */
+.asr-cluster[data-folder-depth="0"]:not(:first-child) {
+  margin-top: 8px;
 }
 
 /* One project control above its tabs. It folds the whole group rather than
@@ -182,15 +178,7 @@
      padding here plus the rail's 8px puts it at 14px from the sidebar edge (DL-27.28, mock D). */
   grid-template-columns: minmax(0, 1fr) 17px;
   gap: 7px;
-  padding: 6px 4px 2px 5px;
-  /* The HUG: this header belongs to the card directly under it, so it sits
-     2px off it — the 6px padding-bottom + `.asr-cluster`'s gap, pulled back by
-     this margin (2026-09-10). Spent as a negative margin rather than out of
-     that gap because the same gap also separates two CHECKOUTS of one project:
-     collapsing it would fuse a repository's cards into one block while fixing
-     the header. The padding is untouched, so the header's own hit area does
-     not change with the rhythm. */
-  margin-bottom: -6px;
+  padding: 4px 4px 4px 5px;
 }
 
 .asr-cluster__toggle {
@@ -247,6 +235,19 @@
   font: 600 var(--type-project) / 1.2 var(--ui-font);
   white-space: nowrap;
   overflow: hidden;
+}
+
+button.asr-cluster__still {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.asr-cluster__still:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* `.asr-cluster__add` — DL-27.18's launcher — was DELETED by
@@ -386,11 +387,9 @@
   transform: rotate(90deg);
 }
 
-/* With `New` moved into the frame on 2026-08-19, the first project starts the
-   rail again. Its smaller top inset prevents the empty column from reading as
-   a dent while every later project keeps the full separation above it. */
+/* All folder headers share the same inset, including the first and nested folders. */
 .asr-cluster:first-child .asr-cluster__head {
-  padding-top: 2px;
+  padding-top: 4px;
 }
 
 /* ------------------------------------------------- the worktree tier */

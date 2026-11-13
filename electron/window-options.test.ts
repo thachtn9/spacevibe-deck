@@ -21,23 +21,26 @@ function token(name: string): string {
 describe("windowChromeOptions", () => {
   // macOS must not change: these are the options `createWindow` passed before
   // the extraction, whole-object, so an added or renamed key turns this red.
-  it.each(["darwin", "linux"] as const)("keeps %s on today's hiddenInset options", (platform) => {
+  it.each(["darwin"] as const)("keeps %s on today's hiddenInset options", (platform) => {
     // Strict, so a `titleBarOverlay: undefined` key sneaking in also fails.
     expect(windowChromeOptions(platform, INITIAL_OVERLAY_COLORS)).toStrictEqual({
       titleBarStyle: "hiddenInset",
     });
   });
 
-  it("paints Windows caption buttons inside the frame row", () => {
-    expect(windowChromeOptions("win32", INITIAL_OVERLAY_COLORS)).toEqual({
-      titleBarStyle: "hidden",
-      titleBarOverlay: {
-        height: 34,
-        color: INITIAL_OVERLAY_COLORS.color,
-        symbolColor: INITIAL_OVERLAY_COLORS.symbolColor,
-      },
-    });
-  });
+  it.each(["win32", "linux"] as const)(
+    "paints %s caption buttons inside the frame row",
+    (platform) => {
+      expect(windowChromeOptions(platform, INITIAL_OVERLAY_COLORS)).toEqual({
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+          height: 34,
+          color: INITIAL_OVERLAY_COLORS.color,
+          symbolColor: INITIAL_OVERLAY_COLORS.symbolColor,
+        },
+      });
+    },
+  );
 });
 
 describe("window chrome constants", () => {

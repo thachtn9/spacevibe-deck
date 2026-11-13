@@ -575,3 +575,13 @@ describe("FONT_FALLBACK", () => {
     expect(FONT_FALLBACK).toBe("Menlo, Monaco, monospace");
   });
 });
+
+describe("railQuotaOpen", () => {
+  it("defaults to visible and validates the independent persisted toggle", () => {
+    expect(DEFAULT_SETTINGS.railQuotaOpen).toBe(true);
+    expect(validateSettings({}).railQuotaOpen).toBe(true);
+    expect(validateSettings({ railQuotaOpen: false }).railQuotaOpen).toBe(false);
+    expect(validateSettings({ railQuotaOpen: "no" }).railQuotaOpen).toBe(true);
+    expect(validateSettings({ railQuotaOpen: false, dockOpen: true }).dockOpen).toBe(true);
+  });
+});

@@ -47,6 +47,7 @@ export type AttentionSource =
   | "process"
   | "registry"
   | "hook"
+  | "transcript"
   | "server";
 
 /**
@@ -143,7 +144,7 @@ export interface RegistryFact {
 export interface ContractSignal {
   readonly agent?: string;
   readonly turnId?: string;
-  readonly source: "hook" | "server";
+  readonly source: "hook" | "server" | "transcript";
   readonly kind:
     "session" | "working" | "completed" | "requested" | "answered" | "error" | "interrupted";
   readonly sessionId: string;
@@ -219,7 +220,7 @@ export interface AgentAttentionTracker {
    * agent, whatever pid the registry matched.
    */
   noteRegistry(id: number, fact: RegistryFact | null): PaneAttentionSnapshot | null;
-  /** Identity only: open Codex writer locks say nothing about activity. */
+  /** Identity only: process-owned Codex/AGY session files say nothing about activity. */
   noteProcessSession(
     id: number,
     pid: number | null,
@@ -897,7 +898,12 @@ export function createAgentAttentionTracker(
 
     noteProcessSession(id, pid, sessionId) {
       const prev = panes.get(id);
-      if (prev === undefined || !prev.isAgent || prev.agentLabel !== "codex") return null;
+      if (
+        prev === undefined ||
+        !prev.isAgent ||
+        (prev.agentLabel !== "codex" && prev.agentLabel !== "agy")
+      )
+        return null;
       const replaced = prev.processSessionPid !== null && prev.processSessionPid !== pid;
       const incomingContract =
         prev.sessionId !== null &&
@@ -973,7 +979,7 @@ export function createAgentAttentionTracker(
       // event is bound to a PORT, and one opencode TUI runs several sessions,
       // so it rotates the pane's session rather than being refused.
       if (
-        signal.source === "hook" &&
+        signal.source !== "server" &&
         prev.sessionId !== null &&
         prev.sessionId !== signal.sessionId &&
         signal.kind !== "session"

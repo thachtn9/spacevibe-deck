@@ -334,22 +334,22 @@ describe("toggle-prompts", () => {
     saveDialogOpen.value = false;
   });
 
-  it("opens the popover signal when a pane is focused", async () => {
+  it("ignores retired Prompts even with a focused pane", async () => {
     const { manager } = await mountManagerWithAgentPane("claude");
     manager.runAction("toggle-prompts");
-    expect(promptsOpen.value).toBe(true);
+    expect(promptsOpen.value).toBe(false);
     manager.runAction("toggle-prompts");
     expect(promptsOpen.value).toBe(false);
     manager.dispose();
   });
 
-  it("says so instead of opening with no pane to paste into", () => {
+  it("ignores retired Prompts without showing an obsolete error", () => {
     const manager = createTabManager(document.createElement("div"), createMemoryPtyClient(), {
       onOpenTaskLauncher: vi.fn(),
     });
     manager.runAction("toggle-prompts");
     expect(promptsOpen.value).toBe(false);
-    expect(persistError.value).toBe("No pane to paste into.");
+    expect(persistError.value).toBeNull();
     manager.dispose();
   });
 });
@@ -371,13 +371,13 @@ describe("toggle-explorer", () => {
     settings.value = DEFAULT_SETTINGS;
   });
 
-  it("flips dockOpen on each call, with no pane required", () => {
+  it("ignores the retired explorer action", () => {
     const manager = createTabManager(document.createElement("div"), createMemoryPtyClient(), {
       onOpenTaskLauncher: vi.fn(),
     });
     expect(settings.value.dockOpen).toBe(false);
     manager.runAction("toggle-explorer");
-    expect(settings.value.dockOpen).toBe(true);
+    expect(settings.value.dockOpen).toBe(false);
     manager.runAction("toggle-explorer");
     expect(settings.value.dockOpen).toBe(false);
     manager.dispose();

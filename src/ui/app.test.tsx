@@ -385,16 +385,24 @@ describe("recent agent activity wiring", () => {
 
   it("mounts agent usage in the rail and keeps session resume in the Sessions dock", () => {
     const railMount = source.slice(source.indexOf("<AgentRail"), source.indexOf("topTabs={"));
-    expect(railMount).toContain("<RailAgentLimits");
-    expect(railMount).toContain('onOpenUsage={() => openDockTab("usage")}');
+    expect(railMount).toContain("<RailQuotaPanel");
+    expect(railMount).toContain("!settings.value.railQuotaOpen");
     expect(source).not.toContain("<RecentSessionActivity");
     expect(source).toContain(
       "<SessionsDockTab onResume={(entry) => void resumeSessionEntry(entry)} />",
     );
   });
 
-  it("keeps the existing Sessions dock navigation on the rail actions", () => {
-    expect(source).toContain('onOpenSessions={() => openDockTab("sessions")}');
+  it("keeps panel navigation on the toolbar when the panel is closed", () => {
+    const toolbar = source.slice(
+      source.indexOf("const chromeActions ="),
+      source.indexOf("const maximizeMacWindow"),
+    );
+    expect(toolbar).toContain("<DockTabs");
+    expect(toolbar).toContain("onSelect={revealDock}");
+    expect(toolbar).toContain('class="tabbar__sep"');
+    expect(source).not.toContain("<DockToggle");
+    expect(source).toContain("externalControls");
   });
 });
 

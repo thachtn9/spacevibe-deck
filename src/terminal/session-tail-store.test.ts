@@ -5,8 +5,11 @@ import {
   installSessionTailSync,
   lastSessionIdFor,
   noteResumedPane,
+  noteExplicitTail,
   paneModels,
+  paneAgentLines,
   paneSessionIds,
+  paneTasks,
   paneTails,
   resetSessionTailStore,
 } from "./session-tail-store";
@@ -49,6 +52,10 @@ function pairingWithModel(
   model: string | null,
 ): SessionTailAnswer {
   return { id, tail, model };
+}
+
+function pairingWithTask(id: string, task: string): SessionTailAnswer {
+  return { id, tail: null, model: null, task };
 }
 
 vi.mock("../host/worktree-host", () => ({
@@ -232,6 +239,72 @@ describe("session tail store", () => {
     expect(paneTails.value.get(101)).toBe("writing the tests");
   });
 
+  it("publishes the newest user task under the same exact pane pairing", async () => {
+    tabViews.value = [tab(1, "/w", [pane(101, { agent: "codex", sessionId: "own-thread" })])];
+    hosts.sessionTails.mockResolvedValue([pairingWithTask("own-thread", "Fix the next bug")]);
+    dispose = installSessionTailSync();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneTasks.value.get(101)).toBe("Fix the next bug");
+
+    hosts.sessionTails.mockResolvedValue([pairingWithTask("new-thread", "Different task")]);
+    tabViews.value = [
+      tab(1, "/w", [pane(101, { agent: "codex", sessionId: "new-thread", changedAt: NOW + 1000 })]),
+    ];
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneTasks.value.get(101)).toBe("Different task");
+  });
+
+  it("publishes a hook's last assistant line without waiting for the transcript to catch up", () => {
+    noteExplicitTail(101, "own-thread", "Build completed.\nAgent cost is above Quota.\n");
+    expect(paneAgentLines.value.get(101)).toBe("Agent cost is above Quota.");
+    expect(paneTasks.value.has(101)).toBe(false);
+  });
+
+  it("delivers activity only for the requested exact Codex session", async () => {
+    const activity = { kind: "working", turnId: "turn-one", observedAt: NOW - 5_000 } as const;
+    const listener = vi.fn();
+    tabViews.value = [tab(1, "/w", [pane(101, { agent: "codex", sessionId: "own-thread" })])];
+    hosts.sessionTails.mockResolvedValue([
+      { id: "own-thread", tail: "Still working", model: null, activity },
+    ]);
+    dispose = installSessionTailSync(listener);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(listener).toHaveBeenCalledExactlyOnceWith(101, "own-thread", activity);
+    listener.mockClear();
+    hosts.sessionTails.mockResolvedValue([
+      { id: "different-thread", tail: "Wrong pane", model: null, activity },
+    ]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    pokeTabViews();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the assistant's last line in the same session and clears it when identity is lost", async () => {
+    tabViews.value = [tab(1, "/w", [pane(101, { agent: "codex", sessionId: "own-thread" })])];
+    hosts.sessionTails.mockResolvedValue([
+      {
+        id: "own-thread",
+        tail: "First sentence. Final line.",
+        model: null,
+        task: "User request",
+        lastLine: "Final line.",
+      },
+    ]);
+    dispose = installSessionTailSync();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneAgentLines.value.get(101)).toBe("Final line.");
+    expect(paneTails.value.get(101)).toBe("First sentence. Final line.");
+    hosts.sessionTails.mockResolvedValue([{ id: "own-thread", tail: "New reply", model: null }]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    pokeTabViews();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneAgentLines.value.get(101)).toBe("New reply");
+    tabViews.value = [tab(1, "/w", [pane(101, { agent: "codex", sessionId: null })])];
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneAgentLines.value.has(101)).toBe(false);
+  });
+
   it("2. does not refetch when nothing changed", async () => {
     tabViews.value = [tab(1, "/w", [pane(101)])];
     hosts.sessionTails.mockResolvedValue(tails("first"));
@@ -244,6 +317,29 @@ describe("session tail store", () => {
 
     expect(hosts.sessionTails).toHaveBeenCalledTimes(1);
     expect(paneTails.value.get(101)).toBe("first");
+  });
+
+  it("refreshes the task of the same exact session without a phase or identity change", async () => {
+    tabViews.value = [
+      tab(1, "/w", [pane(101, { agent: "codex", sessionId: "own-thread", phase: "working" })]),
+    ];
+    hosts.sessionTails.mockResolvedValue([pairingWithTask("own-thread", "First task")]);
+    dispose = installSessionTailSync();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(paneTasks.value.get(101)).toBe("First task");
+
+    hosts.sessionTails.mockResolvedValue([
+      pairingWithTask("own-thread", "Next task in the same session"),
+    ]);
+    pokeTabViews();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(hosts.sessionTails).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    pokeTabViews();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(batchAt(1)[0]).toMatchObject({ preferredId: "own-thread", exact: true });
+    expect(paneTasks.value.get(101)).toBe("Next task in the same session");
   });
 
   it("3. refetches when a pane's changedAt moves, carrying the new lastSeenAt", async () => {

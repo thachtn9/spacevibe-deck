@@ -89,7 +89,7 @@ export function resolveAttemptOutcome(attempt: unknown, currentVersion: string):
  * the stale one it was written with.
  */
 export function manualUpdateHint(
-  platform: "macos" | "windows" | "unsupported" = "unsupported",
+  platform: "macos" | "windows" | "linux" | "unsupported" = "unsupported",
 ): string {
   const location =
     platform === "macos"
@@ -102,7 +102,7 @@ export function manualUpdateHint(
 
 export function attemptMessage(
   outcome: AttemptOutcome,
-  platform: "macos" | "windows" | "unsupported" = "unsupported",
+  platform: "macos" | "windows" | "linux" | "unsupported" = "unsupported",
 ): string | null {
   switch (outcome.kind) {
     case "incomplete":

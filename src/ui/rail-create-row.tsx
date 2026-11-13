@@ -26,6 +26,7 @@ export type RailCreateVariant = "row" | "column";
 
 export interface RailCreateRowProps {
   readonly variant: RailCreateVariant;
+  readonly folderOnly?: boolean;
   /** The tooltip (row) or the title and accessible name (column) of each verb. */
   readonly agentTitle: string;
   readonly worktreeTitle?: string;
@@ -135,9 +136,15 @@ export function RailCreateRow(props: RailCreateRowProps) {
   );
   const row = variant === "row";
   return (
-    <div class="rail-create" data-variant={variant} role="group" aria-label="Create">
-      {!row && agent}
-      {props.onWorktree !== undefined && (
+    <div
+      class="rail-create"
+      data-variant={variant}
+      data-folder-only={props.folderOnly === true}
+      role="group"
+      aria-label="Create"
+    >
+      {!props.folderOnly && !row && agent}
+      {!props.folderOnly && props.onWorktree !== undefined && (
         <CreateButton
           verb="Worktree"
           icon={GitFork}
@@ -150,13 +157,14 @@ export function RailCreateRow(props: RailCreateRowProps) {
       {props.onFolder !== undefined && (
         <CreateButton
           verb="Folder"
+          disabled={props.disabled}
           icon={FolderPlus}
           title={props.folderTitle ?? "Add a folder"}
           variant={variant}
           onPress={props.onFolder}
         />
       )}
-      {row && agent}
+      {!props.folderOnly && row && agent}
     </div>
   );
 }

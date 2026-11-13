@@ -53,7 +53,7 @@ function bindingKey(binding: KeyChord, platform: DesktopPlatform): string {
     }
     return binding.code.replace(/^(?:Digit|Key)/, "");
   }
-  const labels = platform === "windows" ? WINDOWS_KEY_LABELS : MACOS_KEY_LABELS;
+  const labels = usesCtrlKeycaps(platform) ? WINDOWS_KEY_LABELS : MACOS_KEY_LABELS;
   return labels[binding.key] ?? binding.key.toUpperCase();
 }
 
@@ -61,9 +61,17 @@ export function formatShortcutBinding(binding: KeyBinding, platform: DesktopPlat
   return formatKeyChord(binding, platform);
 }
 
+/**
+ * Linux reads Ctrl-based keycaps like Windows: the Linux build runs the
+ * Windows keymap, so a `⌘`/`Cmd` label would name a key that fires nothing.
+ */
+function usesCtrlKeycaps(platform: DesktopPlatform): boolean {
+  return platform === "windows" || platform === "linux";
+}
+
 export function formatKeyChord(binding: KeyChord, platform: DesktopPlatform): string {
   const key = bindingKey(binding, platform);
-  if (platform === "windows") {
+  if (usesCtrlKeycaps(platform)) {
     const modifiers = [
       binding.ctrl ? "Ctrl" : null,
       binding.alt ? "Alt" : null,
@@ -103,7 +111,7 @@ export function shortcutLabel(
 export function primaryModifierName(
   platform: DesktopPlatform = getDesktopEnvironment().platform,
 ): "Cmd" | "Ctrl" {
-  return platform === "windows" ? "Ctrl" : "Cmd";
+  return usesCtrlKeycaps(platform) ? "Ctrl" : "Cmd";
 }
 
 /**
@@ -116,7 +124,7 @@ export function primaryModifierName(
 export function primaryModifierKeycap(
   platform: DesktopPlatform = getDesktopEnvironment().platform,
 ): "⌘" | "Ctrl" {
-  return platform === "windows" ? "Ctrl" : "⌘";
+  return usesCtrlKeycaps(platform) ? "Ctrl" : "⌘";
 }
 
 /**

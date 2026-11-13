@@ -152,6 +152,7 @@ export function RepositoryRail(props: RepositoryRailProps) {
       archivedPaths: new Set(Object.keys(sessionArchive.value)),
     }),
     workspacesData.value.recents.map((recent) => recent.path),
+    repositoryScans.value,
   );
   const lastSelectedTabKeys = useSignal<ReadonlyMap<string, number>>(new Map());
   const selectedWorktree = groups

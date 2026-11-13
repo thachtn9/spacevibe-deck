@@ -46,7 +46,7 @@ a chord temporarily suspends the menu accelerators so the key reaches the record
 
 ## Notifications
 
-- **Agent notifications** — a native alert when a background agent finishes or needs you
+- **Agent notifications** — a sound when a background agent verifiably finishes or needs you
   (off by default).
 
 ## About

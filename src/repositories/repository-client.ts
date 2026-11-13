@@ -30,7 +30,7 @@ export type RepositoryScan =
       readonly root: string;
       readonly worktrees: readonly WorktreeEntry[];
     }
-  | { readonly kind: "plain"; readonly reason: string };
+  | { readonly kind: "plain"; readonly reason: string; readonly canonicalPath?: string };
 
 export interface RepositoryClient {
   scan(path: string): Promise<RepositoryScan>;

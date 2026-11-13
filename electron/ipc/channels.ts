@@ -10,7 +10,47 @@
 
 /** Commands: renderer → main, request/response. */
 export const CHANNELS = {
+  webReviewOpen: "web_review_open",
+  webReviewPairing: "web_review_pairing",
+  webReviewRevoke: "web_review_revoke",
+  webReviewPublish: "web_review_publish",
+  webReviewForget: "web_review_forget",
+  webReviewWrite: "web_review_write",
+  webReviewResult: "web_review_result",
+  webReviewState: "web_review_state",
+  webReviewBounds: "web_review_bounds",
+  webReviewConfigure: "web_review_configure",
+  webReviewNavigate: "web_review_navigate",
+  webReviewMode: "web_review_mode",
+  webReviewComment: "web_review_comment",
+  webReviewRemove: "web_review_remove",
+  webReviewTarget: "web_review_target",
+  webReviewEnqueue: "web_review_enqueue",
+  webReviewCancel: "web_review_cancel",
+  webReviewRetarget: "web_review_retarget",
+  webReviewReviewed: "web_review_reviewed",
+  webReviewReveal: "web_review_reveal",
+  webReviewImage: "web_review_image",
+  textEditorOpen: "text_editor_open",
+  textEditorRestore: "text_editor_restore",
+  textEditorPersist: "text_editor_persist",
+  textEditorRead: "text_editor_read",
+  textEditorSave: "text_editor_save",
+  textEditorCancelClose: "text_editor_cancel_close",
+  textEditorClose: "text_editor_close",
+  codeViewerOpen: "code_viewer_open",
+  codeViewerState: "code_viewer_state",
+  claudeApiLoad: "claude_api_load",
+  claudeApiSave: "claude_api_save",
+  claudeApiTest: "claude_api_test",
+  remoteAccess: "remote_access",
+  remotePublish: "remote_publish",
+  remoteReply: "remote_reply",
+  desktopAgentsUpdate: "desktop_agents_update",
+  clipboardReadImage: "clipboard_read_image",
+  cliManagerQuota: "cli_manager_quota",
   agentLimitsSnapshot: "agent_limits_snapshot",
+  ptyPersistent: "pty_persistent",
   spawnShell: "spawn_shell",
   writePty: "write_pty",
   resizePty: "resize_pty",
@@ -186,6 +226,10 @@ export const CHANNELS = {
   // the frozen Tauri host hides the entry point through the facade's
   // `available` flag. Flat `{ root }` per R6; `root` is checked by the path
   // guard like every Explorer call.
+  gitReviewDiscover: "git_review_discover",
+  gitReviewRead: "git_review_read",
+  gitReviewDiff: "git_review_diff",
+  gitReviewFetch: "git_review_fetch",
   gitChanges: "git_changes",
   // Replaces this sender's one watched checkout; `{ root: null }` releases it.
   // Held only while the list is shown and the window visible. Electron-only.
@@ -194,6 +238,14 @@ export const CHANNELS = {
 
 /** Events: main → renderer, fire and forget. */
 export const EVENTS = {
+  webReviewState: "web-review:state",
+  webReviewDeliver: "web-review:deliver",
+  webReviewConfigure: "web-review:configure",
+  webReviewSelected: "web-review:selected",
+  textEditorCloseRequested: "text-editor:close-requested",
+  codeViewerOpen: "code-viewer:open",
+  remoteRequest: "remote:request",
+  desktopAgentFocus: "desktop-agents:focus",
   ptyOutput: "pty:output",
   ptyExit: "pty:exit",
   ptyPromptReady: "pty:prompt-ready",

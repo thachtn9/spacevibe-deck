@@ -89,7 +89,13 @@ export function registerUpdater(deps: UpdaterDependencies): UpdaterHandle {
       return autoUpdater as unknown as AutoUpdaterLike;
     },
     // A dev run has no bundle to replace and no signature to verify.
-    supported: app.isPackaged,
+    //
+    // Linux is disabled outright: the feed below is upstream's macOS/Windows
+    // release stream, and `electron-updater` on Linux (AppImageUpdater) is
+    // offered no Linux manifest there. Answering "unsupported" is the honest
+    // result — trying anyway would surface a failed-check banner and could
+    // hand an AppImage user a dmg it cannot install.
+    supported: app.isPackaged && process.platform !== "linux",
     currentVersion: app.getVersion(),
     prepareForInstall: () => deps.prepareForInstall(),
     countOutcome: (outcome) => deps.countOutcome(outcome),

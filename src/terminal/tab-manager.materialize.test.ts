@@ -11,11 +11,14 @@ import { sendAgentNotification } from "../lib/native-notification";
 import { WINDOWS_AGENT_LAUNCH_TIMEOUT_MS } from "./agent-launch";
 import { initializeDesktopEnvironment, resetDesktopEnvironmentForTests } from "../lib/platform";
 import { createMemoryPtyClient } from "./pty-client";
+import { persistentTerminal } from "./persistent-terminal-client";
 import {
   flush,
   freshWindowFocusController,
   processInfo,
   setup,
+  setupControllable,
+  fakeNotifierSpy,
   wire,
 } from "./tab-manager.fixtures";
 
@@ -97,6 +100,127 @@ afterEach(() => {
 });
 
 describe("createTabManager materialize (through the createPane seam)", () => {
+  it.each(["working", "completed"] as const)(
+    "restores attached Codex %s activity only for its exact session without a startup sound",
+    async (kind) => {
+      vi.useFakeTimers();
+      const infos = new Map([[12, processInfo(12, "/work", "codex", "agent", "codex")]]);
+      const ready = vi.spyOn(persistentTerminal, "ready").mockResolvedValue();
+      const notifier = fakeNotifierSpy();
+      const { tm } = setupControllable(infos, { notifier: notifier.notifier });
+      try {
+        await tm.init();
+        await tm.materialize({
+          layout: { type: "leaf" },
+          cwds: ["/work"],
+          workspacePath: "/work",
+          attachedPanes: [
+            {
+              id: 12,
+              reference: "554012c8-198a-4247-b97e-d5762dea06dc:12",
+              cols: 80,
+              rows: 24,
+              screen: "",
+              metadata: {
+                agent: "codex",
+                sessionId: "exact-session",
+                cwd: "/work",
+                launchCommand: null,
+              },
+            },
+          ],
+        });
+        await vi.advanceTimersByTimeAsync(2500);
+        notifier.maybeNotify.mockClear();
+        const fact = {
+          kind,
+          turnId: "old-active-turn",
+          observedAt: Date.now() - 60_000,
+        } as const;
+        tm.noteSessionActivity?.(12, "someone-else", fact);
+        expect(tabViews.value[0].panes?.[0].phase).toBe("unknown");
+        tm.noteSessionActivity?.(12, "exact-session", fact);
+        expect(tabViews.value[0].panes?.[0]).toMatchObject({
+          phase: kind === "working" ? "working" : "idle",
+          hasRun: true,
+          sessionId: "exact-session",
+        });
+        expect(tabViews.value[0].agentBusy).toBe(kind === "working");
+        expect(notifier.maybeNotify).not.toHaveBeenCalled();
+        tm.noteSessionActivity?.(12, "exact-session", fact);
+        expect(notifier.maybeNotify).not.toHaveBeenCalled();
+      } finally {
+        tm.dispose();
+        ready.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+  it("restores an attached session identity until its process is replaced", async () => {
+    vi.useFakeTimers();
+    const infos = new Map<number, PaneProcessInfo>([
+      [12, processInfo(12, "/work", "codex", "agent", "codex")],
+    ]);
+    const ready = vi.spyOn(persistentTerminal, "ready").mockResolvedValue();
+    const { tm } = setupControllable(infos);
+    try {
+      await tm.init();
+      await tm.materialize({
+        layout: { type: "leaf" },
+        cwds: ["/work"],
+        workspacePath: "/work",
+        attachedPanes: [
+          {
+            id: 12,
+            reference: "554012c8-198a-4247-b97e-d5762dea06dc:12",
+            cols: 80,
+            rows: 24,
+            screen: "",
+            metadata: {
+              agent: "codex",
+              sessionId: "exact-session",
+              cwd: "/work",
+              launchCommand: null,
+            },
+          },
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(tabViews.value[0].panes?.[0].sessionId).toBe("exact-session");
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(tabViews.value[0].panes?.[0].sessionId).toBe("exact-session");
+      infos.set(12, { ...infos.get(12)!, processId: 13000 });
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(tabViews.value[0].panes?.[0].sessionId).toBeNull();
+    } finally {
+      tm.dispose();
+      ready.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+  it("leaves native diff shortcuts alone instead of closing the active terminal", async () => {
+    const { tm } = setup({});
+    await tm.init();
+    await tm.materialize({ layout: null, cwds: ["/work"] });
+    const preview = document.createElement("pre");
+    preview.setAttribute("data-native-shortcuts", "");
+    preview.tabIndex = 0;
+    document.body.appendChild(preview);
+    preview.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: "w",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    preview.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    const before = windowCloseCalls.length;
+    tm.runAction("close-pane");
+    expect(windowCloseCalls.length).toBe(before);
+    preview.remove();
+    tm.dispose();
+  });
   it("publishes the initialized home directory", async () => {
     resetDesktopEnvironmentForTests();
     initializeDesktopEnvironment({

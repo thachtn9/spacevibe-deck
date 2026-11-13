@@ -7,10 +7,16 @@ export type PaneAgent = string;
 /** Mirror of the `PtyInfo` payload returned by the Rust `pty_info` command. */
 export interface PaneProcessInfo {
   readonly id: number;
+  /** Electron/Linux account observed on this pane's foreground agent. */
+  readonly account?: string | null;
   /** Foreground OS process identity; null when the host cannot inspect it. */
   readonly processId?: number | null;
   /** Electron-only exact Codex writer-lock identity; absent on older hosts. */
   readonly codexSessionId?: string | null;
+  /** Linux's current TUI state; a locked resume is not a running conversation. */
+  readonly codexIdentityState?: "ready" | "locked" | "shared" | "unidentified";
+  /** Electron/Linux exact AGY identity from this process's open presence lock. */
+  readonly agySessionId?: string | null;
   readonly cwd: string | null;
   readonly process: string | null;
   readonly kind: PaneProcessKind;

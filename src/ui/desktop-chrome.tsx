@@ -44,7 +44,7 @@ interface DesktopChromeProps {
 /** Platform shell only; native Windows system controls stay outside Preact. */
 export function DesktopChrome(props: DesktopChromeProps) {
   const platform = getDesktopEnvironment().platform;
-  const windows = platform === "windows";
+  const windows = platform === "windows" || platform === "linux";
   // The right-hand mirror of the traffic-light inset (`22-caption-overlay.css`):
   // only the Electron host paints caption buttons over the row. Its preload
   // bridge is how every facade tells it apart — Tauri's Windows build keeps a

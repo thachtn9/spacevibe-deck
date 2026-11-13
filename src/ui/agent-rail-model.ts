@@ -27,7 +27,7 @@ import {
   type RailTab,
   groupCoversHistoryPath,
   type RepositoryGroup,
-  worktreeForPath,
+  worktreeForWorkspace,
 } from "../repositories/repository-model";
 import { NO_PANES, type PaneView, type TabView } from "../terminal/tabs-store";
 import type { SignalConfidence } from "../terminal/agent-attention";
@@ -404,7 +404,7 @@ function paneRows(
             changedAt: pane.changedAt,
             // DL-27.22: the tab's focused pane is only the WINDOW's focused
             // pane while that tab is the one on the stage.
-            focused: active && pane.focused === true,
+            focused: (active || pane.pinned === true) && pane.focused === true,
           },
         ],
   );
@@ -648,7 +648,7 @@ function rememberedClusters(
       // sibling of a LIVE project already printed, and each row is the way
       // back in. A folder git does not know prints one unlabelled group, which
       // renders as flat entries plus that tier's `New agent` row.
-      worktrees: rememberedWorktrees(repository, primary, first, historyPaths),
+      worktrees: rememberedWorktrees(repository, primary, first, historyPaths, input.scans),
       path: first,
       historyPaths,
       // Nothing is open here — the remembered header's ✕ forgets, it never
@@ -672,6 +672,7 @@ function rememberedWorktrees(
   primary: WorktreeEntry | null,
   first: string,
   historyPaths: readonly string[],
+  scans: ReadonlyMap<string, RepositoryScan>,
 ): readonly RailWorktreeGroup[] {
   const rowless = {
     entries: NO_ENTRIES,
@@ -690,6 +691,7 @@ function rememberedWorktrees(
       {
         key: first,
         branch: name,
+        hasBranch: false,
         name,
         path: first,
         repositoryPath: first,
@@ -702,9 +704,10 @@ function rememberedWorktrees(
   const checkouts = repository.worktrees.filter((entry) => !entry.bare);
   const roots = new Map<string, WorktreeEntry>();
   for (const path of historyPaths) {
-    const root = worktreeForPath(
+    const root = worktreeForWorkspace(
       checkouts.map((entry) => entry.path),
       path,
+      scans,
     );
     const checkout = checkouts.find((entry) => entry.path === root);
     if (checkout !== undefined && !roots.has(checkout.path)) {
@@ -721,6 +724,7 @@ function rememberedWorktrees(
     [...roots.values()].map((checkout) => ({
       key: checkout.path,
       branch: checkout.branch ?? workspaceLabel(checkout.path),
+      hasBranch: checkout.branch !== null,
       name: workspaceLabel(checkout.path),
       path: checkout.path,
       repositoryPath: primary.path,
@@ -784,6 +788,7 @@ export function buildAgentRail(input: AgentRailInput): AgentRailView {
       archivedPaths: NO_ARCHIVED_PATHS,
     }),
     input.workspaceHistoryPaths,
+    input.scans,
   );
 
   const clusters: RailStreamGroup[] = [];
@@ -821,6 +826,7 @@ export function buildAgentRail(input: AgentRailInput): AgentRailView {
         return {
           key: worktree.path,
           branch: worktree.name,
+          hasBranch: worktree.branch !== null,
           // Always the basename of the checkout's own path — a different fact
           // from `branch`, whose fallback only reaches the basename when git
           // reports no branch at all (spec §11.1).
@@ -943,9 +949,10 @@ export function subjectForWorkspace(
   if (scan?.kind === "repository") {
     const checkouts = scan.worktrees.filter((entry) => !entry.bare);
     const primary = checkouts[0];
-    const root = worktreeForPath(
+    const root = worktreeForWorkspace(
       checkouts.map((entry) => entry.path),
       path,
+      scans,
     );
     const checkout = checkouts.find((entry) => entry.path === root);
     if (primary !== undefined && checkout !== undefined) {

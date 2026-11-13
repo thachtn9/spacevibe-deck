@@ -1,3 +1,8 @@
+import type { PanePin } from "./pinned-pane-layout";
+import type {
+  PersistentTerminalSnapshot,
+  PersistentTerminalMetadata,
+} from "../lib/persistent-terminal";
 import type { PaneProcessInfo } from "../lib/process-info";
 import { countLeaves, type SerializedNode } from "../lib/split-tree";
 import type { TabDotColor } from "../lib/tab-colors";
@@ -118,6 +123,11 @@ export interface MaterializeChrome {
  * TabManager.materialize owns the implementation.
  */
 export interface MaterializeIntent {
+  readonly panePins?: readonly (PanePin | undefined)[];
+  readonly paneNotices?: readonly (string | null)[];
+  readonly activePaneIndex?: number;
+  readonly recoveryPanes?: readonly PersistentTerminalMetadata[];
+  readonly attachedPanes?: readonly (PersistentTerminalSnapshot | null)[];
   /** Transient launcher only; defaults preserve restore/preset behavior. */
   readonly canCommit?: () => boolean;
   readonly focusOnInit?: boolean;

@@ -1,14 +1,11 @@
+import { managerResumeCommand } from "../lib/cli-manager-sessions";
 /**
  * A history row's one action: open a single-pane tab in the session's own
  * directory and type that CLI's exact resume command.
  *
- * Two seams are reused rather than rebuilt, deliberately:
- * - `buildResumeCommand` is the ONE place a scanned session id is checked
- *   against `SESSION_REF_SAFE` before it can reach a PTY write. A second
- *   builder here would fork that check, which is a security boundary.
- * - `MaterializeIntent.paneCommands` already carries a per-pane command line
- *   (session restore, 2026-08-15). Nothing in tab materialization changes for
- *   this feature — it is a caller of an existing seam, not a widening of it.
+ * Manager sessions use a validated `cli resume <id> --acc <account>` command.
+ * Legacy scanner entries retain their native resume path. Both reuse the
+ * existing MaterializeIntent rather than writing into an existing pane.
  */
 import { buildResumeCommand } from "../lib/agent-resume";
 import { noteResumedPane } from "../terminal/session-tail-store";
@@ -35,11 +32,9 @@ export async function resumeSession(
   if (deps.isDead(entry.cwd)) {
     return false;
   }
-  const command = buildResumeCommand(
-    entry.agent,
-    { kind: "id", id: entry.sessionId },
-    deps.customAgents,
-  );
+  const command = entry.manager
+    ? managerResumeCommand(entry)
+    : buildResumeCommand(entry.agent, { kind: "id", id: entry.sessionId }, deps.customAgents);
   // `buildResumeCommand` degrades an unsafe id to the BARE agent command. A
   // bare `claude` here would silently open a NEW conversation while the user
   // asked to resume an old one, so this path refuses instead. The empty id is
@@ -49,7 +44,7 @@ export async function resumeSession(
     return false;
   }
   const opened = await deps.materialize({
-    layout: BUILT_IN_PRESET.layout,
+    layout: entry.manager ? null : BUILT_IN_PRESET.layout,
     cwds: [entry.cwd],
     paneCommands: [command],
     workspacePath: entry.cwd,

@@ -1,3 +1,5 @@
+import { createRemoteTerminal } from "./remote-terminal";
+import { terminalMouseEncodingSequence } from "../lib/terminal-mouse-state";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -15,10 +17,18 @@ import { createLinkProvider } from "./link-provider";
 import { createOscLinkHandler } from "./osc-link-handler";
 import { paneCwd } from "./pane-cwd";
 import { classifyOscNotification } from "../lib/osc-notification";
-import { copyTerminalSelection, pasteIntoTerminal } from "./terminal-clipboard";
+import {
+  copyTerminalSelection,
+  pasteIntoTerminal,
+  copyOsc52,
+  installTerminalMouseClipboard,
+} from "./terminal-clipboard";
 import { getDesktopEnvironment } from "../lib/platform";
 import { createCodexWheelHandler } from "./codex-wheel";
 import { mountPaneAgentHeader } from "./pane-agent-header";
+import { createAgyResizeRepaint } from "./agy-resize-repaint";
+import { notePaneSessionTitle, forgetPaneSessionTitle } from "./session-title-store";
+import { readRemoteScreen } from "./remote-screen";
 
 /** Structured attention signal a pane can emit — never a native notification. */
 export interface PaneAttentionSignal {
@@ -93,6 +103,8 @@ export interface Pane {
    * losing history is never worth losing the session (spec §13).
    */
   serializeScrollback(lines: number): string;
+  /** Read resolved display cells without replaying escapes or resizing this pane. */
+  remoteScreen?(lines: number): ReturnType<typeof readRemoteScreen>;
   /**
    * Current terminal geometry in cells — travels with the pane across a move
    * (spec §10.2) and is what the destination constructs its terminal at, so
@@ -255,12 +267,51 @@ export function createPane(
   term.loadAddon(serializeAddon);
 
   let activeAgent: string | null = null;
+  const titleHandler = term.onTitleChange((title) => notePaneSessionTitle(id, title));
+  // A detached cli-agy may leave only its Python wrapper in pty_info.
+  let agyBannerSeen = false;
+  let agyBannerTail = "";
+  const remoteControl = document.createElement("button");
+  remoteControl.type = "button";
+  remoteControl.className = "pane__remote-control";
+  remoteControl.textContent = "Web controls this terminal · Return here";
+  remoteControl.hidden = true;
+  element.append(remoteControl);
+  const remoteTerminal = createRemoteTerminal({
+    id,
+    flush,
+    snapshot: () => serializeScrollback(1000) + terminalMouseEncodingSequence(term),
+    dimensions: () => ({ cols: term.cols, rows: term.rows }),
+    resize: (cols, rows) => term.resize(cols, rows),
+    restore: () => fit(),
+    write: (data) => events.onData(id, data, true),
+    controlled: (active) => {
+      // Keep protocol replies enabled while browser input owns the keyboard.
+      element.dataset.remoteControlled = String(active);
+      remoteControl.hidden = !active;
+    },
+  });
+  remoteControl.addEventListener("click", () => remoteTerminal.reclaim());
+  term.attachCustomKeyEventHandler(() => !remoteTerminal.controlled);
+  const blockRemoteMouse = (event: Event) => {
+    if (remoteTerminal.controlled) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  for (const type of ["mousedown", "mouseup", "mousemove", "wheel"])
+    termEl.addEventListener(type, blockRemoteMouse, { capture: true, passive: false });
+  const agyRepaint = createAgyResizeRepaint((data) => {
+    remoteTerminal.output(data);
+    term.write(data);
+  });
   let capturePasteWrite: ((write: Promise<boolean>) => void) | null = null;
 
   let userInput = false;
   let keyInput: string | null = null;
   function forwardData(data: string): Promise<boolean> {
     const fromUser = userInput || keyInput === data;
+    if (fromUser && remoteTerminal.controlled) return Promise.resolve(false);
     if (keyInput === data) keyInput = null;
     const write = events.onData(id, data, fromUser);
     capturePasteWrite?.(write);
@@ -287,6 +338,7 @@ export function createPane(
   // Structured attention signals only — no native/OS notification here.
   // OSC 9;4 progress payloads classify to null and stay handled by the
   // separate raw-output path in osc-progress.ts.
+  const osc52Handler = term.parser.registerOscHandler(52, copyOsc52);
   const osc9Handler = term.parser.registerOscHandler(9, (payload) => {
     const signal = classifyOscNotification(9, payload);
     if (signal) {
@@ -342,6 +394,14 @@ export function createPane(
       userInput = false;
     }
   }
+  const disposeMouseClipboard = installTerminalMouseClipboard(termEl, {
+    agent: () => activeAgent,
+    getSelection: () => term.getSelection(),
+    hasSelection: () => term.hasSelection(),
+    paste: (text) => {
+      if (!disposed && !remoteTerminal.controlled) pasteUserText(text);
+    },
+  });
   term.onData((data) => void forwardData(data));
   term.onResize(({ cols, rows }) => events.onResize(id, cols, rows));
   // Shift+Enter carries no protocol encoding of its own — bind it to ESC CR so
@@ -386,6 +446,8 @@ export function createPane(
     }, RESIZE_DEBOUNCE_MS);
   });
   let opened = false;
+  let resizeQueued = false;
+  let disposed = false;
   let webglAddon: WebglAddon | undefined;
   // Authoritative over `webglAddon`, and settable before `mount()` — that is
   // what keeps a pane restored into a hidden tab from ever opening a context.
@@ -472,27 +534,50 @@ export function createPane(
   const MIN_TERMINAL_COLS = 24;
 
   function fit(): void {
-    try {
-      // Not `fitAddon.fit()`: it applies the measured size unclamped. Its
-      // private `_renderService.clear()` is skipped too; `term.resize` already
-      // triggers a full refresh.
-      const proposed = fitAddon.proposeDimensions();
-      if (!proposed || Number.isNaN(proposed.cols) || Number.isNaN(proposed.rows)) return;
-      const cols = Math.max(MIN_TERMINAL_COLS, proposed.cols);
-      const rows = proposed.rows;
-      if (cols !== term.cols || rows !== term.rows) {
-        term.resize(cols, rows);
+    if (disposed || rendererSuspended || resizeQueued || remoteTerminal.controlled) return;
+    resizeQueued = true;
+    // PTY writes are parsed asynchronously. A queued cursor-relative frame
+    // belongs to the OLD geometry; resizing first makes its lines wrap at
+    // the new width and leaves stale rows when the CLI erases that frame.
+    term.write("", () => {
+      resizeQueued = false;
+      if (disposed || rendererSuspended || remoteTerminal.controlled) return;
+      if (opened && (termEl.clientWidth === 0 || termEl.clientHeight === 0)) return;
+      try {
+        // Not `fitAddon.fit()`: it applies the measured size unclamped. Its
+        // private `_renderService.clear()` is skipped too; `term.resize` already
+        // triggers a full refresh.
+        const proposed = fitAddon.proposeDimensions();
+        if (!proposed || Number.isNaN(proposed.cols) || Number.isNaN(proposed.rows)) return;
+        const cols = Math.max(MIN_TERMINAL_COLS, proposed.cols);
+        const rows = proposed.rows;
+        if (cols !== term.cols || rows !== term.rows) {
+          if (activeAgent === "agy" || agyBannerSeen) agyRepaint.begin();
+          term.resize(cols, rows);
+        }
+        // A snapshot can be parsed before open(), before the viewport exists.
+        // If the restored dimensions already fit, no resize/scroll event syncs
+        // its initial zero-sized scrollbar. Sync without resizing the live CLI.
+        const viewport = (term as unknown as { _core?: { _viewport?: { queueSync?(): void } } })
+          ._core?._viewport;
+        viewport?.queueSync?.();
+      } catch {
+        // Element not in DOM yet or zero-sized — skip, next fit will succeed
       }
-    } catch {
-      // Element not in DOM yet or zero-sized — skip, next fit will succeed
-    }
+    });
   }
 
   function write(data: string): void {
-    term.write(data);
+    if (!agyBannerSeen && activeAgent !== "codex") {
+      const probe = agyBannerTail + data;
+      agyBannerSeen = /Antigravity CLI \d+\./.test(probe);
+      agyBannerTail = agyBannerSeen ? "" : probe.slice(-64);
+    }
+    agyRepaint.write(data);
   }
 
   function flush(): Promise<void> {
+    agyRepaint.flush();
     // The empty write is deliberate: xterm queues the callback behind
     // everything already in the parser queue, so this resolves on the next
     // drain even when nothing is pending. Verified empirically on 2026-08-10
@@ -521,7 +606,13 @@ export function createPane(
   }
 
   function setHeaderInfo(info: PaneHeaderInfo): void {
+    if (activeAgent === "codex" && (!info.agent || info.badge !== "codex"))
+      forgetPaneSessionTitle(id);
     activeAgent = info.agent ? info.badge : null;
+    if ((info.agent && info.badge !== "agy") || (!info.agent && info.badge === "shell")) {
+      agyBannerSeen = false;
+      agyBannerTail = "";
+    }
     dot.style.background = info.dotColor;
     cwdEl.textContent = info.cwd;
     badge.textContent = info.badge;
@@ -558,6 +649,13 @@ export function createPane(
   }
 
   function dispose(): void {
+    disposed = true;
+    remoteTerminal.dispose();
+    for (const type of ["mousedown", "mouseup", "mousemove", "wheel"])
+      termEl.removeEventListener(type, blockRemoteMouse, true);
+    titleHandler.dispose();
+    forgetPaneSessionTitle(id);
+    agyRepaint.dispose();
     disposeAgentHeader();
     if (resizeTimer !== null) {
       clearTimeout(resizeTimer);
@@ -568,6 +666,8 @@ export function createPane(
       termEl.removeEventListener(type, markBrowserInput, true);
     }
     linkProvider.dispose();
+    disposeMouseClipboard();
+    osc52Handler.dispose();
     osc9Handler.dispose();
     osc777Handler.dispose();
     bellHandler.dispose();
@@ -591,6 +691,7 @@ export function createPane(
     write,
     flush,
     serializeScrollback,
+    remoteScreen: (lines) => readRemoteScreen(term, lines),
     // Getters, never captured values: a pane that resized after construction
     // must report what the user last saw, not what it was born with.
     get cols() {
@@ -609,9 +710,12 @@ export function createPane(
     clearSelection: () => term.clearSelection(),
     paste() {
       pasteIntoTerminal({
+        agent: () => activeAgent,
         getSelection: () => term.getSelection(),
         hasSelection: () => term.hasSelection(),
-        paste: pasteUserText,
+        paste: (text) => {
+          if (!disposed) pasteUserText(text);
+        },
       });
     },
     pasteText(text) {

@@ -40,14 +40,7 @@ describe("SidebarActions", () => {
   it("names every surface the rail can open, in the owner's order", () => {
     act(() => render(<SidebarActions {...base} />, host));
 
-    expect(names()).toEqual([
-      "Session history",
-      "Token usage",
-      "Explorer",
-      "Prompts",
-      "Browser",
-      "Settings",
-    ]);
+    expect(names()).toEqual(["Quota", "Settings"]);
   });
 
   it("draws icons only — no label text in the row", () => {
@@ -60,13 +53,11 @@ describe("SidebarActions", () => {
     }
   });
 
-  // Same precedent as the dock's own tab row: a control that opens an empty
-  // surface is worse than none.
-  it("drops Session history on a host that cannot answer for it", () => {
+  it("keeps history out of the left footer on every host", () => {
     act(() => render(<SidebarActions {...base} sessionsAvailable={false} />, host));
 
     expect(names()).not.toContain("Session history");
-    expect(tools()).toHaveLength(5);
+    expect(tools()).toHaveLength(2);
   });
 
   it("routes each icon to its own callback, once", () => {
@@ -76,66 +67,53 @@ describe("SidebarActions", () => {
       act(() => tool.click());
     }
 
-    expect(base.onOpenSessions).toHaveBeenCalledTimes(1);
+    expect(base.onOpenSessions).not.toHaveBeenCalled();
     expect(base.onOpenUsage).toHaveBeenCalledTimes(1);
-    expect(base.onOpenExplorer).toHaveBeenCalledTimes(1);
-    expect(base.onOpenPrompts).toHaveBeenCalledTimes(1);
-    expect(base.onOpenBrowser).toHaveBeenCalledTimes(1);
+    expect(base.onOpenExplorer).not.toHaveBeenCalled();
+    expect(base.onOpenPrompts).not.toHaveBeenCalled();
+    expect(base.onOpenBrowser).not.toHaveBeenCalled();
     expect(base.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  // DL-28.5 / DL-21.8: these open and report nothing — no pressed icon, no
-  // `aria-pressed`, no `aria-expanded`, nothing that implies a second press
-  // would put the surface away.
-  it("paints no selection state, even while its surfaces are open", () => {
-    act(() => render(<SidebarActions {...base} promptsOpen />, host));
-
-    for (const tool of tools()) {
-      expect(tool.classList.contains("is-active")).toBe(false);
-      expect(tool.hasAttribute("aria-pressed")).toBe(false);
-      expect(tool.hasAttribute("aria-expanded")).toBe(false);
-    }
+  it("announces the independent quota toggle without painting selection", () => {
+    act(() => render(<SidebarActions {...base} quotaOpen />, host));
+    expect(tools()[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(tools()[1]?.hasAttribute("aria-pressed")).toBe(false);
+    for (const tool of tools()) expect(tool.classList.contains("is-active")).toBe(false);
+    act(() => render(<SidebarActions {...base} quotaOpen={false} />, host));
+    expect(tools()[0]?.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("marks only Prompts as opening a popover", () => {
+  it("does not expose a retired popover", () => {
     act(() => render(<SidebarActions {...base} />, host));
 
     const popups = tools().filter((tool) => tool.hasAttribute("aria-haspopup"));
-    expect(popups.map((tool) => tool.getAttribute("aria-label"))).toEqual(["Prompts"]);
-    expect(popups[0]?.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(popups.map((tool) => tool.getAttribute("aria-label"))).toEqual([]);
+    expect(names()).not.toContain("Prompts");
   });
 
   // DL-23.6: unavailable is not disabled. The icon keeps its place in the tab
   // order so the reason stays reachable without a pointer; only activation is
   // blocked.
-  it("keeps an unavailable Prompts icon focusable but inert, and says why on focus", () => {
+  it("omits Prompts even when a caller supplies an unavailable reason", () => {
     act(() =>
       render(<SidebarActions {...base} promptsUnavailable="no pane to paste into" />, host),
     );
 
-    const prompts = tools().find((tool) => tool.getAttribute("aria-label") === "Prompts")!;
-    expect(prompts.getAttribute("aria-disabled")).toBe("true");
-    expect(prompts.hasAttribute("disabled")).toBe(false);
-    expect(prompts.classList.contains("is-unavailable")).toBe(true);
-
-    act(() => prompts.click());
+    expect(names()).not.toContain("Prompts");
     expect(base.onOpenPrompts).not.toHaveBeenCalled();
-
-    act(() => prompts.focus());
-    const tip = document.querySelector(".action-tip");
-    expect(tip?.textContent).toContain("no pane to paste into");
   });
 
-  it("opens a tooltip above the icon on keyboard focus, carrying name and chord", () => {
+  it("opens a tooltip above the icon on keyboard focus, without the right dock's shortcut", () => {
     act(() => render(<SidebarActions {...base} />, host));
 
-    const explorer = tools().find((tool) => tool.getAttribute("aria-label") === "Explorer")!;
+    const explorer = tools().find((tool) => tool.getAttribute("aria-label") === "Quota")!;
     act(() => explorer.focus());
 
     const tip = document.querySelector(".action-tip");
     expect(tip?.classList.contains("action-tip--above")).toBe(true);
-    expect(tip?.querySelector(".action-tip__label")?.textContent).toBe("Explorer");
-    expect(tip?.querySelector(".action-tip__kbd")?.textContent).not.toBe("");
+    expect(tip?.querySelector(".action-tip__label")?.textContent).toBe("Quota");
+    expect(tip?.querySelector(".action-tip__kbd")).toBeNull();
     expect(explorer.getAttribute("aria-describedby")).toBe(tip?.id);
   });
 
@@ -146,19 +124,19 @@ describe("SidebarActions", () => {
     act(() =>
       render(<SidebarActions {...base} promptsOpen promptPopover={<div class="pp" />} />, host),
     );
-    expect(host.querySelector(".sidebar-actions__slot .pp")).not.toBeNull();
+    expect(host.querySelector(".sidebar-actions__slot .pp")).toBeNull();
   });
 
-  it("keeps tooltips off the popover's path while it is open", () => {
+  it("keeps retained tools usable despite stale prompt state", () => {
     act(() =>
       render(<SidebarActions {...base} promptsOpen promptPopover={<div class="pp" />} />, host),
     );
 
     act(() => tools()[0]?.focus());
-    expect(document.querySelector(".action-tip")).toBeNull();
+    expect(document.querySelector(".action-tip")).not.toBeNull();
   });
 
-  // DL-28.6: collapsed, the six icons are one `Tools` button and its popover.
+  // DL-28.6: collapsed, the two icons are one `Tools` button and its popover.
   describe("collapsed", () => {
     const button = (): HTMLButtonElement =>
       host.querySelector<HTMLButtonElement>('button[aria-label="Tools"]')!;
@@ -186,10 +164,10 @@ describe("SidebarActions", () => {
 
       act(() => render(<SidebarActions {...base} />, host));
       expect(host.querySelector('button[aria-label="Tools"]')).toBeNull();
-      expect(tools()).toHaveLength(6);
+      expect(tools()).toHaveLength(2);
     });
 
-    it("opens the six tools as rows with their chords, in order", () => {
+    it("opens the retained tools with only their own chords, in order", () => {
       act(() => render(<SidebarActions {...base} collapsed />, host));
       expect(menu()).toBeNull();
 
@@ -197,16 +175,11 @@ describe("SidebarActions", () => {
 
       expect(button().getAttribute("aria-expanded")).toBe("true");
       expect(rows().map((row) => row.querySelector(".toolbar-menu__label")?.textContent)).toEqual([
-        "Session history",
-        "Token usage",
-        "Explorer",
-        "Prompts",
-        "Browser",
+        "Quota",
         "Settings",
       ]);
-      for (const row of rows()) {
-        expect(row.querySelector(".toolbar-menu__kbd")?.textContent).not.toBe("");
-      }
+      expect(rows()[0]?.querySelector(".toolbar-menu__kbd")).toBeNull();
+      expect(rows()[1]?.querySelector(".toolbar-menu__kbd")?.textContent).toBeTruthy();
       // Focus lands on the first row once the menu is placed.
       expect(document.activeElement).toBe(rows()[0]);
     });
@@ -215,14 +188,14 @@ describe("SidebarActions", () => {
       act(() => render(<SidebarActions {...base} collapsed />, host));
       press(button());
 
-      press(rows()[2]!);
+      press(rows()[1]!);
 
-      expect(base.onOpenExplorer).toHaveBeenCalledTimes(1);
+      expect(base.onOpenSettings).toHaveBeenCalledTimes(1);
       expect(menu()).toBeNull();
       expect(document.activeElement).not.toBe(button());
     });
 
-    it("keeps an unavailable Prompts row in place, inert, with its reason", () => {
+    it("omits Prompts from collapsed tools too", () => {
       act(() =>
         render(
           <SidebarActions {...base} collapsed promptsUnavailable="no pane to paste into" />,
@@ -231,12 +204,8 @@ describe("SidebarActions", () => {
       );
       press(button());
 
-      const prompts = rows()[3]!;
-      expect(prompts.getAttribute("aria-disabled")).toBe("true");
-      expect(prompts.textContent).toContain("no pane to paste into");
-      press(prompts);
+      expect(rows().some((row) => row.textContent?.includes("Prompts"))).toBe(false);
       expect(base.onOpenPrompts).not.toHaveBeenCalled();
-      expect(menu()).not.toBeNull();
     });
 
     it("closes on Escape and returns focus to the button", () => {
@@ -268,7 +237,7 @@ describe("SidebarActions", () => {
       press(button());
 
       key("ArrowUp");
-      expect(document.activeElement).toBe(rows()[5]);
+      expect(document.activeElement).toBe(rows()[1]);
       key("ArrowDown");
       expect(document.activeElement).toBe(rows()[0]);
     });
@@ -300,7 +269,7 @@ describe("SidebarActions", () => {
         ),
       );
 
-      expect(host.querySelector(".sidebar-actions__slot .pp")).not.toBeNull();
+      expect(host.querySelector(".sidebar-actions__slot .pp")).toBeNull();
     });
   });
 });

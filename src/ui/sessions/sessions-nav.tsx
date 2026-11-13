@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { ClockCounterClockwise } from "@phosphor-icons/react";
 import { useRef } from "preact/hooks";
 import { AgentGlyph } from "../controls/agent-glyph";
@@ -34,8 +35,8 @@ interface SessionsNavItem {
  *  names and keep their capitals (the 2026-08-15 casing fork). */
 const SESSIONS_NAV_ITEMS: readonly SessionsNavItem[] = [
   { agent: "all", label: "All sessions", short: "All" },
-  { agent: "claude", label: "Claude Code", short: "Claude" },
   { agent: "codex", label: "Codex", short: "Codex" },
+  { agent: "agy", label: "AGY", short: "AGY" },
 ];
 
 /** DL-25.2's mark, reused on the filter that selects that same agent: `all`
@@ -67,8 +68,9 @@ function NavGlyph({ agent }: { readonly agent: AgentFilter }) {
  */
 interface SessionsNavProps {
   readonly variant?: "rail" | "compact";
+  readonly actions?: ComponentChildren;
 }
-export function SessionsNav({ variant = "rail" }: SessionsNavProps) {
+export function SessionsNav({ variant = "rail", actions }: SessionsNavProps) {
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const compact = variant === "compact";
 
@@ -144,6 +146,7 @@ export function SessionsNav({ variant = "rail" }: SessionsNavProps) {
           );
         })}
       </div>
+      {actions}
     </nav>
   );
 }

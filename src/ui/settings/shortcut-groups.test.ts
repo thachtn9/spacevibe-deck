@@ -9,6 +9,7 @@ import {
 import { DISPATCHABLE_ACTIONS } from "../../terminal/tab-action-scope";
 import {
   ACTION_REGISTRY,
+  RETIRED_ACTIONS,
   MACOS_KEYMAP,
   WINDOWS_KEYMAP,
   isActionId,
@@ -22,7 +23,7 @@ describe("shortcutGroups", () => {
     // an action nobody can rebind, and it would go unnoticed.
     const actions = new Set(rows().map((row) => row.action));
     for (const action of ACTION_REGISTRY) {
-      if (NOT_REBINDABLE.has(action.id)) {
+      if (NOT_REBINDABLE.has(action.id) || RETIRED_ACTIONS.has(action.id)) {
         continue;
       }
       expect(actions.has(action.id), action.id).toBe(true);
@@ -87,6 +88,7 @@ describe("shortcutGroups", () => {
     // and never find.
     const actions = new Set(rows().map((row) => row.action));
     for (const binding of [...MACOS_KEYMAP, ...WINDOWS_KEYMAP]) {
+      if (RETIRED_ACTIONS.has(binding.action)) continue;
       expect(actions.has(binding.action), binding.action).toBe(true);
     }
   });

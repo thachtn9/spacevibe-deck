@@ -3,8 +3,6 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The section pulls in the Tauri-backed settings store; stub it so the
-// component tree mounts under jsdom.
 vi.mock("../../../host/store-host", () => ({
   Store: {
     load: vi.fn(async () => ({
@@ -14,148 +12,65 @@ vi.mock("../../../host/store-host", () => ({
     })),
   },
 }));
-vi.mock("../../../lib/native-notification", () => ({
-  requestAgentNotificationPermission: vi.fn(),
+vi.mock("../../../host/desktop-agents-host", () => ({
+  desktopAgentsHost: { available: true },
 }));
-vi.mock("../../../chrome/events", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../chrome/events")>();
-  return {
-    ...actual,
-    reportPersistError: vi.fn(),
-  };
-});
+const requestPermission = vi.hoisted(() => vi.fn());
+vi.mock("../../../host/shell-host", () => ({ requestPermission }));
 
 import { NotificationsSection } from "./notifications-section";
 import { settings } from "../../../settings/settings-store";
 import { DEFAULT_SETTINGS } from "../../../settings/settings-schema";
-import { requestAgentNotificationPermission } from "../../../lib/native-notification";
-import { reportPersistError } from "../../../chrome/events";
 
-const mockedRequestPermission = vi.mocked(requestAgentNotificationPermission);
-const mockedReportPersistError = vi.mocked(reportPersistError);
-
-/** Flushes the whole microtask queue — a single `await Promise.resolve()`
- * only advances one hop, which isn't enough for an `await`-chained handler
- * (permission request → settings update/error → `finally`). A macrotask
- * boundary guarantees every pending microtask has drained first. */
-const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe("NotificationsSection — agent notifications toggle (Task 22)", () => {
+describe("NotificationsSection — sound toggle", () => {
   let host: HTMLDivElement;
 
   beforeEach(() => {
-    document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
-    settings.value = DEFAULT_SETTINGS;
-    mockedRequestPermission.mockReset();
-    mockedReportPersistError.mockReset();
+    settings.value = { ...DEFAULT_SETTINGS };
+    requestPermission.mockClear();
   });
 
   afterEach(() => {
-    act(() => {
-      render(null, host);
-    });
+    act(() => render(null, host));
+    host.remove();
   });
 
   const mount = (): void => {
-    act(() => {
-      render(<NotificationsSection />, host);
-    });
+    act(() => render(<NotificationsSection />, host));
   };
-
   const getToggle = (): HTMLButtonElement =>
     host.querySelector('[aria-label="Agent notifications"]') as HTMLButtonElement;
 
-  it("does NOT request permission on render/mount", () => {
-    mount();
-    expect(mockedRequestPermission).not.toHaveBeenCalled();
-    expect(getToggle().getAttribute("aria-checked")).toBe("false");
-  });
-
-  it("enable + granted: requests permission once, setting becomes true", async () => {
-    mockedRequestPermission.mockResolvedValueOnce(true);
-    mount();
-
-    await act(async () => {
-      getToggle().dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await flushMicrotasks();
-    });
-
-    expect(mockedRequestPermission).toHaveBeenCalledTimes(1);
-    expect(settings.value.agentNotifications).toBe(true);
-    expect(mockedReportPersistError).not.toHaveBeenCalled();
-    expect(getToggle().getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("enable + denied: requests permission, setting stays false, error surfaced", async () => {
-    mockedRequestPermission.mockResolvedValueOnce(false);
-    mount();
-
-    await act(async () => {
-      getToggle().dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await flushMicrotasks();
-    });
-
-    expect(mockedRequestPermission).toHaveBeenCalledTimes(1);
-    expect(settings.value.agentNotifications).toBe(false);
-    expect(mockedReportPersistError).toHaveBeenCalledTimes(1);
-    expect(getToggle().getAttribute("aria-checked")).toBe("false");
-  });
-
-  it("permission API rejects: setting stays false, error surfaced, no throw escapes", async () => {
-    mockedRequestPermission.mockRejectedValueOnce(new Error("boom"));
-    mount();
-
-    await expect(
-      act(async () => {
-        getToggle().dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        await flushMicrotasks();
-      }),
-    ).resolves.not.toThrow();
-
-    expect(mockedRequestPermission).toHaveBeenCalledTimes(1);
-    expect(settings.value.agentNotifications).toBe(false);
-    expect(mockedReportPersistError).toHaveBeenCalledTimes(1);
-  });
-
-  it("disable (currently true): setting becomes false, permission NOT requested", async () => {
+  it("describes sound alerts and preserves the saved setting on mount", () => {
     settings.value = { ...DEFAULT_SETTINGS, agentNotifications: true };
     mount();
+    expect(host.textContent).toContain("Play a sound");
     expect(getToggle().getAttribute("aria-checked")).toBe("true");
-
-    await act(async () => {
-      getToggle().dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await flushMicrotasks();
-    });
-
-    expect(settings.value.agentNotifications).toBe(false);
-    expect(mockedRequestPermission).not.toHaveBeenCalled();
-    expect(getToggle().getAttribute("aria-checked")).toBe("false");
+    expect(requestPermission).not.toHaveBeenCalled();
   });
 
-  it("double-click / re-entry while a request is in flight: permission requested exactly once", async () => {
-    let resolvePermission: (granted: boolean) => void = () => {};
-    mockedRequestPermission.mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolvePermission = resolve;
-        }),
-    );
+  it("toggles desktop activity independently from sound", async () => {
     mount();
-    const toggle = getToggle();
+    const toggle = host.querySelector('[aria-label="Desktop agent activity"]') as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle.click());
+    expect(settings.value.showDesktopAgents).toBe(false);
+    expect(settings.value.agentNotifications).toBe(false);
+    await act(async () => toggle.click());
+    expect(settings.value.showDesktopAgents).toBe(true);
+  });
 
-    await act(async () => {
-      // Both dispatches happen in the same synchronous tick, before Preact
-      // re-renders the `disabled` attribute — this exercises the local
-      // `requesting.value` guard, not the DOM `disabled` enforcement.
-      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      resolvePermission(true);
-      await flushMicrotasks();
-    });
-
-    expect(mockedRequestPermission).toHaveBeenCalledTimes(1);
+  it("enables and disables sound without requesting OS notification permission", async () => {
+    mount();
+    await act(async () => getToggle().click());
     expect(settings.value.agentNotifications).toBe(true);
+    expect(getToggle().getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => getToggle().click());
+    expect(settings.value.agentNotifications).toBe(false);
+    expect(getToggle().getAttribute("aria-checked")).toBe("false");
+    expect(requestPermission).not.toHaveBeenCalled();
   });
 });

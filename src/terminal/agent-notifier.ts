@@ -1,9 +1,9 @@
-import type { AttentionKind } from "./agent-attention";
+import type { AttentionKind, AttentionSource } from "./agent-attention";
 import type { AgentNotificationPayload } from "../lib/native-notification";
 
 /**
  * Pure, injectable policy for turning an `AgentAttentionTracker` transition
- * into a native OS notification. This module is deliberately dumb: it never
+ * into a background sound alert. This module is deliberately dumb: it never
  * imports Tauri, the settings store, or a window-focus API — every fact it
  * needs (setting enabled, window focus, and the permission-guarded `send`
  * from Task 20's adapter) arrives through `AgentNotifierDeps`, so it can be
@@ -20,11 +20,10 @@ import type { AgentNotificationPayload } from "../lib/native-notification";
 export interface AgentNotifierDeps {
   /** Whether the user has enabled agent notifications (settings.agentNotifications). */
   isEnabled: () => boolean;
-  /** Live window-focus state. Native notifications are background-only — the
+  /** Live window-focus state. Sound alerts are background-only — the
    * in-app attention rail already covers the foreground case. */
   isWindowFocused: () => boolean;
-  /** Task 20's permission-guarded adapter `send` — the notifier never talks
-   * to the OS notification API itself. */
+  /** Sound adapter `send`; the notifier never touches playback directly. */
   send: (payload: AgentNotificationPayload) => void;
 }
 
@@ -35,6 +34,10 @@ export interface AttentionNotification {
    * notifier's dedupe key (the other half is `paneId`). Monotonic per pane. */
   revision: number;
   kind: AttentionKind;
+  /** Signal origin. Generic terminal notifications stay visible in-app but silent. */
+  source: AttentionSource | null;
+  /** Inferred output timing is useful UI context, but too noisy for audio. */
+  confidence: "explicit" | "inferred";
   /** Normalized workspace/tab label — never raw terminal text. */
   workspaceLabel: string;
   /** Normalized agent/process label — never raw terminal text. */
@@ -62,13 +65,29 @@ const KIND_PHRASE: Record<Exclude<AttentionKind, "none">, string> = {
 };
 
 /**
+ * Audio is reserved for agent-owned protocol signals. Terminal BEL/OSC
+ * notifications are shared by arbitrary subprocesses, while output timing is
+ * only a heuristic; both caused unrelated sounds despite remaining useful as
+ * in-app attention hints.
+ */
+function isAudible(
+  n: AttentionNotification,
+): n is AttentionNotification & { kind: Exclude<AttentionKind, "none"> } {
+  if (n.kind === "none" || n.confidence !== "explicit") return false;
+  if (n.kind === "requested") {
+    return n.source === "registry" || n.source === "hook" || n.source === "server";
+  }
+  return n.source === "osc-progress" || n.source === "hook" || n.source === "server";
+}
+
+/**
  * Build the injectable, transition-driven notification policy described in
  * the module doc. `maybeNotify` fires `deps.send` only when every gate
  * holds:
  *
  * 1. `deps.isEnabled()` is true.
  * 2. `deps.isWindowFocused()` is false (background-only).
- * 3. `n.kind` is actionable (anything but `"none"`).
+ * 3. The transition came from an explicit agent-owned protocol signal.
  * 4. `n.revision` is strictly greater than the last revision notified for
  *    that pane (monotonic guard — see below).
  *
@@ -89,7 +108,7 @@ export function createAgentNotifier(deps: AgentNotifierDeps): AgentNotifier {
 
   return {
     maybeNotify(n) {
-      if (!deps.isEnabled() || deps.isWindowFocused() || n.kind === "none") {
+      if (!deps.isEnabled() || deps.isWindowFocused() || !isAudible(n)) {
         return;
       }
       const previous = lastNotified.get(n.paneId) ?? -Infinity;

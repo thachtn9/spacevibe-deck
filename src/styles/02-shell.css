@@ -22,7 +22,8 @@
    Windows build keeps a native title bar above the row and reserves nothing.
    Either way the row is the same height and carries the same content
    (DL-18.4, DL-18.5). */
-.window--windows {
+.window--windows,
+.window--linux {
   --frame-lights-w: 0px;
 }
 
@@ -66,7 +67,8 @@
 /* Windows' controls are on the right (see `.window--windows` above), so there
    is nothing to reserve on the left and the element drops out of layout rather
    than leaving a gap. */
-.window--windows .deck-frame__lights {
+.window--windows .deck-frame__lights,
+.window--linux .deck-frame__lights {
   display: none;
 }
 

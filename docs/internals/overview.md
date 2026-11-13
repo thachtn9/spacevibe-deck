@@ -5,7 +5,8 @@
 SpaceVibe Deck is an Electron desktop terminal for running several AI agent CLIs side by
 side. The main process (`electron/`) owns everything the renderer cannot: PTYs, the process
 table, windows, persistent stores, the native menu, the updater, usage analytics, git
-worktrees and agent session lookup. The renderer (`src/`) is Preact plus xterm.js, and reaches
+worktrees and agent session lookup. Linux PTYs live in a detached terminal service, with main
+retaining the window ownership routes; UI shutdown detaches them instead of terminating them. The renderer (`src/`) is Preact plus xterm.js, and reaches
 the host only through the facades in `src/host/`.
 
 ## Two hosts, one renderer
@@ -82,15 +83,27 @@ awaited before first paint so an imported theme cannot flash.
 
 State is Preact signals; module stores are window-scoped (R5).
 
-The sidebar and mounted Usage Overview share one renderer allowance poll and focus
-listener through [the reference-counted observer](../../src/usage/agent-limits-store.ts).
-Only the final subscriber stops it; a reply from a stopped generation cannot update a
-reopened view. [The shared hook](../../src/ui/usage/use-agent-limits.ts) applies the same
-reset/TTL boundaries in both surfaces. Token polling remains owned by
-[UsageDockTab](../../src/ui/usage/usage-dock-tab.tsx), so token errors and limit errors
-must not hide the other source. Gallery specimens use
-[OverviewContent](../../src/ui/usage/sections/overview-section.tsx) with injected data,
-never the store-connected wrapper: a live limit read can activate a collector.
+On Linux, the desktop agent widget projects the same per-pane activity through
+owner-validated snapshots. Its transparent Electron helper runs under XWayland because
+GNOME Wayland does not allow global window placement; the main Deck window keeps its own
+backend. The helper has a restricted preload, owns no PTYs or journal state, and exits when
+its parent pipe closes. It never joins the coordinator's window census. Reloading, closing
+or losing a source renderer clears that source's rows; clicking a row rechecks ownership
+and routes through the existing exact-pane focus action. No terminal text crosses this
+boundary, and no additional process scanner or animation timer runs for the widget.
+On Wayland, widget clicks carry a recent X11 startup-notification token through Electron's
+single-instance handoff; a plain `show()`/`focus()` only produces GNOME's ready notification.
+The helper temporarily addresses the owner's lock and restores its separate profile before
+returning. The owner resolves the row and rechecks pane ownership before opening that window.
+
+The sidebar and mounted Quota dock share a 30-second poll and focus listener through
+[the reference-counted quota observer](../../src/usage/cli-quota-store.ts). Only the
+final subscriber stops it; a reply from a stopped generation cannot update a reopened
+view. The Electron host reads CLI Manager's cached status over its fixed local HTTP
+endpoint, so quota display never switches accounts or starts a provider collector.
+On failure, the last reading stays visible and is explicitly marked cached. The
+legacy token-cost components remain available for gallery specimens, but the shipping
+dock no longer mounts their history scan or allowance collectors.
 
 
 ## The bridge and its contract

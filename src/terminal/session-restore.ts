@@ -1,3 +1,8 @@
+import {
+  accountFromCommand,
+  type PersistentTerminalSnapshot,
+  type PersistentTerminalMetadata,
+} from "../lib/persistent-terminal";
 /**
  * Boot/rail restore orchestration.
  *
@@ -32,6 +37,11 @@ import type { TabManager } from "./tab-manager";
 const BUILTIN_AGENT_IDS = new Set(BUILTIN_AGENTS.map((agent) => agent.id));
 
 export interface RestoreDeps {
+  persistent?: {
+    attach(reference: string): Promise<PersistentTerminalSnapshot | null>;
+    detach(id: number): Promise<void>;
+    recovery(): Promise<Record<string, PersistentTerminalMetadata>>;
+  };
   manager: Pick<TabManager, "materialize" | "selectTab" | "notifySurfacesChanged">;
   files: Pick<FileSurfaceController, "openFile" | "activateFile">;
   dirsExist(paths: readonly string[]): Promise<boolean[]>;
@@ -63,6 +73,8 @@ interface DatedTab {
  *  marked `skipLookup`: sending a stale cwd into a scanner that ranks by
  *  exact cwd match would produce a wrong or wasted match. */
 interface LivePane {
+  readonly terminalRef?: string;
+  readonly account?: string | null;
   readonly cwd: string | null;
   readonly agent: string | null;
   readonly skipLookup: boolean;
@@ -124,6 +136,8 @@ async function checkLiveness(
 function livePaneOf(pane: SessionPane, alive: ReadonlyMap<string, boolean>): LivePane {
   if (pane.cwd !== null && alive.get(pane.cwd) !== true) {
     return {
+      terminalRef: pane.terminalRef,
+      account: pane.account,
       cwd: null,
       agent: pane.agent,
       skipLookup: true,
@@ -133,6 +147,8 @@ function livePaneOf(pane: SessionPane, alive: ReadonlyMap<string, boolean>): Liv
     };
   }
   return {
+    terminalRef: pane.terminalRef,
+    account: pane.account,
     cwd: pane.cwd,
     agent: pane.agent,
     skipLookup: false,
@@ -174,7 +190,12 @@ function buildResumeRequests(tabs: readonly LiveTab[]): {
   const keys: string[] = [];
   tabs.forEach((tab, tabIndex) => {
     tab.panes.forEach((pane, paneIndex) => {
-      if (pane.agent !== null && !pane.skipLookup && BUILTIN_AGENT_IDS.has(pane.agent)) {
+      if (
+        pane.agent !== null &&
+        !pane.terminalRef &&
+        !pane.skipLookup &&
+        BUILTIN_AGENT_IDS.has(pane.agent)
+      ) {
         requests.push({
           agent: pane.agent,
           cwd: pane.cwd,
@@ -209,6 +230,19 @@ function paneCommandsFor(
   return tab.panes.map((pane, paneIndex) => {
     if (pane.agent === null) {
       return null;
+    }
+    if (pane.terminalRef) {
+      const account = pane.account ?? accountFromCommand(pane.launchCommand);
+      if (
+        pane.skipLookup ||
+        !pane.sessionId ||
+        !account ||
+        !/^[A-Za-z0-9._-]{1,128}$/.test(pane.sessionId) ||
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(account) ||
+        (pane.agent !== "codex" && pane.agent !== "agy")
+      )
+        return null;
+      return `cli resume ${pane.sessionId} --acc ${account}`;
     }
     const ref = refs.get(paneKey(tabIndex, paneIndex)) ?? null;
     const command = buildResumeCommand(pane.agent, ref, customAgents);
@@ -256,12 +290,36 @@ async function materializeAll(
   refs: ReadonlyMap<string, ResumeRef>,
   customAgents: readonly CustomAgent[],
   select: boolean,
+  persistent?: RestoreDeps["persistent"],
 ): Promise<number> {
   let restored = 0;
   for (const [tabIndex, tab] of tabs.entries()) {
-    const paneCommands = paneCommandsFor(tab, tabIndex, refs, customAgents);
+    const attachedPanes: (PersistentTerminalSnapshot | null)[] = [];
     try {
+      for (const pane of tab.panes) {
+        attachedPanes.push(
+          persistent && pane.terminalRef ? await persistent.attach(pane.terminalRef) : null,
+        );
+      }
+      const paneCommands = paneCommandsFor(tab, tabIndex, refs, customAgents).map(
+        (command, index) => (attachedPanes[index] ? null : command),
+      );
       const ok = await manager.materialize({
+        ...(persistent
+          ? {
+              attachedPanes,
+              recoveryPanes: tab.panes,
+              activePaneIndex: tab.source.activePaneIndex,
+              paneNotices: tab.panes.map((pane, index) =>
+                !attachedPanes[index] && pane.agent && !paneCommands[index]
+                  ? "Deck could not verify this conversation. Resume it from Session History."
+                  : null,
+              ),
+            }
+          : {}),
+        ...(tab.source.panes.some((pane) => pane.pin)
+          ? { panePins: tab.source.panes.map((pane) => pane.pin) }
+          : {}),
         layout: tab.source.layout,
         cwds: tab.panes.map((pane) => pane.cwd),
         paneCommands,
@@ -274,6 +332,10 @@ async function materializeAll(
         select,
         ...(tab.source.workspacePath !== null ? { workspacePath: tab.source.workspacePath } : {}),
       });
+      if (!ok) {
+        for (const pane of attachedPanes)
+          if (pane) await persistent?.detach(pane.id).catch(console.warn);
+      }
       if (ok) {
         restored += 1;
         noteResumedPanes(tab, tabIndex, refs);
@@ -288,6 +350,8 @@ async function materializeAll(
         });
       }
     } catch (err) {
+      for (const pane of attachedPanes)
+        if (pane) await persistent?.detach(pane.id).catch(console.warn);
       console.error("session restore: materialize failed:", err);
     }
   }
@@ -297,7 +361,7 @@ async function materializeAll(
 /** Liveness → resume lookup → sequential materialize. Shared by boot restore
  *  and the rail's single-workspace resume. */
 async function restoreTabs(
-  deps: Pick<RestoreDeps, "manager" | "dirsExist" | "lookup" | "customAgents">,
+  deps: Pick<RestoreDeps, "manager" | "dirsExist" | "lookup" | "customAgents" | "persistent">,
   entries: readonly DatedTab[],
   extraLivenessPaths: readonly string[] = [],
   select = true,
@@ -305,11 +369,37 @@ async function restoreTabs(
   readonly restored: number;
   readonly alive: ReadonlyMap<string, boolean>;
 }> {
+  if (deps.persistent) {
+    const recovery = await deps.persistent.recovery();
+    entries = entries.map(({ tab, lastSeenAt }) => ({
+      lastSeenAt,
+      tab: {
+        ...tab,
+        panes: tab.panes.map((pane) => {
+          const metadata = pane.terminalRef ? recovery[pane.terminalRef] : undefined;
+          return metadata ? { ...pane, ...metadata } : pane;
+        }),
+      },
+    }));
+  }
   const paths = livenessPaths(entries, extraLivenessPaths);
   const alive = await checkLiveness(deps.dirsExist, paths);
-  const live = applyLiveness(entries, alive);
+  const live = applyLiveness(entries, alive).map((tab) => ({
+    ...tab,
+    panes: tab.panes.map((pane) => ({
+      ...pane,
+      terminalRef: deps.persistent ? pane.terminalRef : undefined,
+    })),
+  }));
   const refs = await resolveRefs(deps.lookup, live);
-  const restored = await materializeAll(deps.manager, live, refs, deps.customAgents(), select);
+  const restored = await materializeAll(
+    deps.manager,
+    live,
+    refs,
+    deps.customAgents(),
+    select,
+    deps.persistent,
+  );
   return { restored, alive };
 }
 
@@ -464,7 +554,7 @@ export async function restoreSession(deps: RestoreDeps, mainLabel: string): Prom
 /** Rail click: rebuild one workspace's archived tabs (terminal only, no
  *  files, no marker — materialize already selects the new tab as it lands). */
 export async function resumeWorkspace(
-  deps: Pick<RestoreDeps, "manager" | "dirsExist" | "lookup" | "customAgents">,
+  deps: Pick<RestoreDeps, "manager" | "dirsExist" | "lookup" | "customAgents" | "persistent">,
   entry: ArchiveEntry,
   workspacePath: string,
 ): Promise<boolean> {

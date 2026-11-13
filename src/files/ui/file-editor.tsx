@@ -32,6 +32,11 @@ import { ExternalChangeBar } from "./external-change-bar";
 export interface FileEditorProps {
   readonly path: string;
   readonly controller: FileSurfaceController;
+  readonly readOnly?: boolean;
+  readonly command?: {
+    readonly id: "actions.find" | "editor.action.gotoLine";
+    readonly nonce: number;
+  };
 }
 
 /** The bits of Monaco this component holds on to. Kept in one ref so the
@@ -65,6 +70,8 @@ export function FileEditor(props: FileEditorProps) {
    * case, which is exactly the shape a manual pass would have found late.
    */
   const ready = useSignal(0);
+  const loadError = useSignal(false);
+  const loadAttempt = useSignal(0);
   const document = documentFor(props.path);
   /**
    * Read during render on purpose: that is what subscribes this component to
@@ -99,6 +106,7 @@ export function FileEditor(props: FileEditorProps) {
       return;
     }
     let cancelled = false;
+    loadError.value = false;
     void loadMonaco()
       .then((monaco) => {
         if (cancelled || hostRef.current === null) {
@@ -108,6 +116,7 @@ export function FileEditor(props: FileEditorProps) {
         const editor = monaco.editor.create(host, {
           theme: DECK_THEME_ID,
           automaticLayout: true,
+          readOnly: props.readOnly === true,
           minimap: { enabled: false },
           // DL-1.3 forbids shadows; Monaco draws one under its scroll edge.
           scrollbar: { useShadows: false },
@@ -130,7 +139,7 @@ export function FileEditor(props: FileEditorProps) {
         };
         handleRef.current = handle;
         editor.onDidChangeModelContent(() => {
-          if (handle.applying || handle.current === null) {
+          if (props.readOnly || handle.applying || handle.current === null) {
             return;
           }
           props.controller.setText(handle.current, editor.getValue());
@@ -188,6 +197,7 @@ export function FileEditor(props: FileEditorProps) {
         // The packaged Monaco smoke's failure mode, surfaced rather than swallowed: a chunk that
         // 404s under `file://` would otherwise be a blank rectangle.
         console.error("Deck: the editor could not be loaded", error);
+        if (!cancelled) loadError.value = true;
       });
     return () => {
       cancelled = true;
@@ -202,7 +212,7 @@ export function FileEditor(props: FileEditorProps) {
         }
       }
     };
-  }, [editorHostPresent]);
+  }, [editorHostPresent, loadAttempt.value]);
 
   // Swap the model when the path changes, and re-apply the content whenever the
   // document's baseline moves — a reload, or the first read landing.
@@ -260,7 +270,7 @@ export function FileEditor(props: FileEditorProps) {
     }
     handle.current = props.path;
     editor.updateOptions({
-      readOnly: document.file === null || document.file.readOnly,
+      readOnly: props.readOnly === true || document.file === null || document.file.readOnly,
     });
     // `document.file !== null` is the gate, not a nicety: on a cold open this
     // effect runs once with an empty model (the read is still in flight), and
@@ -273,7 +283,14 @@ export function FileEditor(props: FileEditorProps) {
       if (activeFileTab.value === props.path) editor.focus();
       clearReveal(reveal.path);
     }
-  }, [props.path, document?.text, document?.file, ready.value, reveal]);
+  }, [props.path, props.readOnly, document?.text, document?.file, ready.value, reveal]);
+
+  useEffect(() => {
+    const editor = handleRef.current?.editor;
+    if (editor === undefined || props.command === undefined) return;
+    editor.focus();
+    editor.trigger("deck-code-viewer", props.command.id, null);
+  }, [props.command, ready.value]);
 
   // Theme, font family and font size follow the SAME `applySettings` call the
   // terminals do — a theme switch must not leave the editor in the old palette
@@ -305,6 +322,20 @@ export function FileEditor(props: FileEditorProps) {
         </div>
       ) : (
         <>
+          {loadError.value && (
+            <div class="filebar" role="alert">
+              <span class="filebar__text">Couldn't load the code viewer.</span>
+              <button
+                type="button"
+                class="btn"
+                onClick={() => {
+                  loadAttempt.value += 1;
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <ExternalChangeBar
             prompt={document.prompt}
             fileName={baseName(props.path)}

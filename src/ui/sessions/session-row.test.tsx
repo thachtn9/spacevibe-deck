@@ -46,6 +46,24 @@ describe("SessionRow", () => {
   const resumeButton = (): HTMLButtonElement | null =>
     host.querySelector<HTMLButtonElement>("button.session-row__resume");
 
+  it("shows manager account/status and blocks sessions belonging to another machine", () => {
+    const onResume = vi.fn();
+    mount({
+      entry: entry({
+        agent: "agy",
+        manager: { account: "acc5", isClient: true, workspaceExists: true, running: true },
+      }),
+      dead: false,
+      homeDir: "",
+      onResume,
+    });
+    expect(host.textContent).toContain("acc5 · Running");
+    expect(host.textContent).toContain("Session belongs to another machine");
+    expect(resumeButton()?.getAttribute("aria-disabled")).toBe("true");
+    act(() => resumeButton()?.click());
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
   it("shows the title, the agent and the project", () => {
     mount({
       entry: entry(),

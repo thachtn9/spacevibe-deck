@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentBinary,
+  agentOptions,
   agentProcessMatchers,
   BUILTIN_AGENTS,
   createCustomAgentId,
@@ -112,11 +113,23 @@ describe("createCustomAgentId", () => {
 });
 
 describe("resolveAgentCommand", () => {
-  it("maps a built-in id to itself", () => {
-    // The id/binary/command being one string is what keeps every lastAgent
-    // already on disk working without a migration.
+  it("keeps brand identities while discovering and launching the local managers", () => {
+    const detected = [
+      { name: "claude", path: "/bin/claude" },
+      { name: "cli-agy", path: "/bin/cli-agy" },
+      { name: "cli-codex", path: "/bin/cli-codex" },
+    ];
+    expect(agentOptions(detected, [], ["claude"]).map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: "codex", label: "Codex" },
+      { id: "agy", label: "AGY" },
+    ]);
+    expect(resolveAgentCommand("agy", [])).toBe("cli-agy");
+    expect(resolveAgentCommand("codex", [])).toBe("cli-codex");
+  });
+
+  it("maps a stable built-in id to its configured launcher", () => {
     for (const builtin of BUILTIN_AGENTS) {
-      expect(resolveAgentCommand(builtin.id, [])).toBe(builtin.id);
+      expect(resolveAgentCommand(builtin.id, [])).toBe(builtin.binary ?? builtin.id);
     }
   });
 
@@ -132,7 +145,7 @@ describe("resolveAgentCommand", () => {
 
 describe("probeNames", () => {
   it("always includes every built-in", () => {
-    expect(probeNames([])).toEqual(BUILTIN_AGENTS.map((agent) => agent.id));
+    expect(probeNames([])).toEqual(BUILTIN_AGENTS.map((agent) => agent.binary ?? agent.id));
   });
 
   it("adds each custom agent's binary once", () => {
@@ -150,7 +163,7 @@ describe("probeNames", () => {
       command: "x;rm -rf ~",
     };
     expect(probeNames([evil])).not.toContain("x;rm");
-    expect(probeNames([evil])).toEqual(BUILTIN_AGENTS.map((a) => a.id));
+    expect(probeNames([evil])).toEqual(BUILTIN_AGENTS.map((a) => a.binary ?? a.id));
   });
 
   it("does not re-list a custom binary that is already a built-in", () => {
@@ -159,7 +172,7 @@ describe("probeNames", () => {
       label: "Claude resume",
       command: "claude --resume",
     };
-    expect(probeNames([resumed])).toEqual(BUILTIN_AGENTS.map((a) => a.id));
+    expect(probeNames([resumed])).toEqual(BUILTIN_AGENTS.map((a) => a.binary ?? a.id));
   });
 });
 

@@ -18,7 +18,9 @@ import {
 } from "../platform/classify";
 import * as macos from "../platform/macos";
 import * as windows from "../platform/windows";
+import * as linux from "../platform/linux";
 import { processCodexSessions } from "../platform/codex-thread-locks";
+import { readLinuxPaneAgent } from "../platform/linux-pane-agents";
 import type { PtySessionSnapshot } from "./session-store";
 
 export interface PtyInfoPlatform {
@@ -32,13 +34,17 @@ export interface PtyInfoPlatform {
 }
 
 function platform(): PtyInfoPlatform {
-  return process.platform === "win32" ? windows : macos;
+  return process.platform === "win32" ? windows : process.platform === "linux" ? linux : macos;
 }
 
 export interface PtyInfo {
   readonly id: number;
   readonly processId: number | null;
+  /** Linux CLI Manager account from the foreground agent's own profile environment. */
+  readonly account?: string | null;
   readonly codexSessionId?: string | null;
+  readonly codexIdentityState?: "ready" | "locked" | "shared" | "unidentified";
+  readonly agySessionId?: string | null;
   readonly cwd: string | null;
   readonly process: string | null;
   readonly kind: Classification["kind"];
@@ -155,6 +161,12 @@ export function createPtyInfoReader(
     snapshots: readonly PtySessionSnapshot[],
   ): PtyInfo[] {
     const result = infos.map((info) => {
+      // Linux's tty-bound inspection already read this process's own writer.
+      if (info.codexIdentityState !== undefined) {
+        identities.delete(info.id);
+        pendingIdentities.delete(info.id);
+        return info;
+      }
       const shellPid = snapshots.find((snapshot) => snapshot.id === info.id)?.pid;
       if (info.agent !== "codex" || info.processId === null || shellPid === undefined) {
         identities.delete(info.id);
@@ -266,10 +278,25 @@ export function createPtyInfoReader(
         }
         scheduleCwdRefresh(processPlatform);
       }
-      return withCodexIdentity(
-        buildPtyInfo(snapshots, rows, cachedCwds, processPlatform, agentMatchers),
-        snapshots,
-      );
+      let infos = buildPtyInfo(snapshots, rows, cachedCwds, processPlatform, agentMatchers);
+      if (processPlatform === linux) {
+        infos = await Promise.all(
+          infos.map((info, index) => readLinuxPaneAgent(info, snapshots[index])),
+        );
+      }
+      const result = withCodexIdentity(infos, snapshots);
+      // Decision-point reads need the identity this reading started, not the
+      // previous poll's cache. Ordinary background polls remain non-blocking.
+      if (waitForCwd && identityRefresh !== null) {
+        await identityRefresh;
+        return result.map((info) => {
+          const identity = identities.get(info.id);
+          return info.agent === "codex" && identity?.pid === info.processId
+            ? { ...info, codexSessionId: identity.sessionId }
+            : info;
+        });
+      }
+      return result;
     },
   };
 }

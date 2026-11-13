@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { SETTINGS_CATEGORIES } from "./settings-categories";
 
 describe("SETTINGS_CATEGORIES", () => {
-  it("lists exactly the ten navigable categories, in rail display order", () => {
+  it("lists the navigable categories in rail display order", () => {
     const ids: readonly string[] = SETTINGS_CATEGORIES.map((c) => c.id);
     expect(ids).toEqual([
       "appearance",
-      "browser",
       "terminal",
       "agents",
       "links-editor",
       "shortcuts",
       "notifications",
+      "remote",
       "about",
       // The usage-analytics consent view (spec 2026-08-22 §7): after about,
       // before reset, per the plan — the disclosure reads as an app-level

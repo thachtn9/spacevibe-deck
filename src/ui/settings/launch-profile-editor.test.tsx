@@ -126,7 +126,10 @@ describe("LaunchProfileEditor", () => {
   };
 
   const install = (...ids: readonly string[]): void => {
-    detectedAgents.value = ids.map((name) => ({ name, path: `/bin/${name}` }));
+    detectedAgents.value = ids.map((id) => {
+      const name = id === "codex" || id === "agy" ? `cli-${id}` : id;
+      return { name, path: `/bin/${name}` };
+    });
   };
 
   it("prints each agent's shipped command, with no preset declared", () => {
@@ -136,7 +139,7 @@ describe("LaunchProfileEditor", () => {
     // The catalog's recommendation, not a bare binary and not something the
     // user had to type — this is what a fresh install shows.
     expect(host.textContent).toContain("--dangerously-skip-permissions");
-    expect(host.textContent).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(host.textContent).toContain("cli-codex");
     expect(updateSettings).not.toHaveBeenCalled();
   });
 
@@ -350,13 +353,11 @@ describe("LaunchProfileEditor", () => {
     click(byLabel("Configure Codex"));
 
     expect((byLabel("Permissions for Claude Code") as HTMLSelectElement).value).toBe("skip");
-    expect(inPanel("codex", "No approvals or sandbox")?.getAttribute("aria-checked")).toBe("true");
+    expect(inPanel("codex", "No approvals or sandbox")?.getAttribute("aria-checked")).toBe("false");
     expect(inPanel("codex", "Web search")?.getAttribute("aria-checked")).toBe("false");
     expect(inPanel("claude", "No approvals or sandbox")).toBeNull();
     // The field holds the whole command, so focusing it shows what launches.
-    expect((byLabel("Command for Codex") as HTMLInputElement).value).toBe(
-      "codex --dangerously-bypass-approvals-and-sandbox -c tui.animations=false",
-    );
+    expect((byLabel("Command for Codex") as HTMLInputElement).value).toBe("cli-codex");
   });
 
   it("a menu choice saves the new command as a starred preset", () => {

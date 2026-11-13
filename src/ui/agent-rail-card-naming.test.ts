@@ -367,6 +367,27 @@ describe("buildCardEntries task label and second line", () => {
     ]);
   });
 
+  it("keeps a restored live session without painting an unknown status", () => {
+    const named = tabRow({
+      key: 1,
+      index: 0,
+      title: "Restore taskbar activity",
+      named: true,
+      panes: [{ ...paneRow("codex", 1), confidence: "unknown" }],
+    });
+    const unnamed = tabRow({
+      key: 2,
+      index: 1,
+      title: "",
+      named: false,
+      panes: [{ ...paneRow("agy", 2), confidence: "unknown" }],
+    });
+    expect(lines(buildCardEntries([named, unnamed], undefined))).toEqual([
+      ["Restore taskbar activity", "Codex"],
+      ["AGY", ""],
+    ]);
+  });
+
   it("lets a turn beat the state word, on a named tab and an unnamed one", () => {
     const working = (message: string) => ({
       ...paneRow("claude", 1),
@@ -457,8 +478,8 @@ describe("stateWord (DL-27.2, amended 2026-10-07)", () => {
     expect(word({ state: "ended", exitCode: null })).toBe("Ended");
   });
 
-  it("says No signal only for an idle pane nothing has been seen from", () => {
-    expect(word({ confidence: "unknown" })).toBe("No signal");
+  it("omits the status for an idle pane nothing has been seen from", () => {
+    expect(word({ confidence: "unknown" })).toBe("");
     expect(word({ confidence: "inferred" })).toBe("Ready");
     expect(word({ state: "done", confidence: "unknown" })).toBe("Finished");
   });
@@ -468,7 +489,7 @@ describe("sessionTitlesFor", () => {
   const entry = (
     sessionId: string,
     title: string | null,
-    agent: "claude" | "codex" = "claude",
+    agent: "claude" | "codex" | "agy" = "claude",
   ) => ({
     agent,
     sessionId,
@@ -505,6 +526,34 @@ describe("sessionTitlesFor", () => {
       [entry("a", "Claude's prompt", "claude")],
     );
     expect(titles.size).toBe(0);
+  });
+
+  it("uses Codex's own terminal title when its daemon owns the session files", () => {
+    const titles = sessionTitlesFor(
+      [tab(null, [{ agent: "codex" }, { agent: "agy" }])],
+      [],
+      new Map([
+        [1, "Fix the rail"],
+        [2, "An unrelated shell title"],
+      ]),
+    );
+    expect([...titles]).toEqual([[1, "Fix the rail"]]);
+  });
+
+  it("joins AGY titles by exact session id, keeping two sessions in one folder apart", () => {
+    const titles = sessionTitlesFor(
+      [
+        tab(null, [
+          { agent: "agy", sessionId: "a" },
+          { agent: "agy", sessionId: "b" },
+        ]),
+      ],
+      [entry("a", "First task", "agy"), entry("b", "Second task", "agy")],
+    );
+    expect([...titles]).toEqual([
+      [1, "First task"],
+      [2, "Second task"],
+    ]);
   });
 
   it("asks only for the sessions of unnamed Claude Code and Codex panes", () => {

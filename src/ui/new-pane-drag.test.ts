@@ -95,6 +95,23 @@ describe("createNewPaneDragController", () => {
     controller.dispose();
   });
 
+  it("highlights the full pane for a new-tab account drop", () => {
+    const controller = createNewPaneDragController(handle, {
+      ghostLabel: "cli codex1",
+      targetShape: "full",
+      dropLabel: "Open codex1 in a new tab",
+      slotRects: () => rects,
+      onDrop,
+    });
+    handle.dispatchEvent(pointer("pointerdown", 500, 500));
+    window.dispatchEvent(pointer("pointermove", 10, 50));
+    const overlay = document.querySelector<HTMLElement>(".drop-overlay")!;
+    expect(overlay.style.width).toBe("200px");
+    expect(overlay.style.height).toBe("100px");
+    expect(overlay.textContent).toBe("Open codex1 in a new tab");
+    controller.dispose();
+  });
+
   it("drops nothing when the cursor is outside every pane", () => {
     const controller = install();
 
@@ -103,6 +120,66 @@ describe("createNewPaneDragController", () => {
     window.dispatchEvent(pointer("pointerup", 480, 480));
 
     expect(onDrop).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it("distinguishes a folder drop from a terminal split", () => {
+    const onFolderDrop = vi.fn();
+    const controller = createNewPaneDragController(handle, {
+      ghostLabel: "cli codex1",
+      dropLabel: "Split with codex1",
+      slotRects: () => rects,
+      onDrop,
+      folderTargets: () => [
+        { path: "/project", rect: { id: 0, left: 250, top: 0, right: 400, bottom: 40 } },
+      ],
+      onFolderDrop,
+    });
+    handle.dispatchEvent(pointer("pointerdown", 500, 500));
+    window.dispatchEvent(pointer("pointermove", 300, 20));
+    expect(document.querySelector(".drop-overlay")?.textContent).toBe("Open account in a new tab");
+    window.dispatchEvent(pointer("pointerup", 300, 20));
+    expect(onFolderDrop).toHaveBeenCalledWith("/project");
+    expect(onDrop).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it("prioritizes a header account switch over the pane's top split edge", () => {
+    const onHeaderDrop = vi.fn();
+    const controller = createNewPaneDragController(handle, {
+      ghostLabel: "cli codex2",
+      dropLabel: "Split with codex2",
+      slotRects: () => rects,
+      onDrop,
+      headerTargets: () => [{ ...PANE, bottom: 33 }],
+      headerDropLabel: "Switch to codex2 and resume",
+      onHeaderDrop,
+    });
+    handle.dispatchEvent(pointer("pointerdown", 500, 500));
+    window.dispatchEvent(pointer("pointermove", 100, 15));
+    const overlay = document.querySelector<HTMLElement>(".drop-overlay")!;
+    expect(overlay.textContent).toBe("Switch to codex2 and resume");
+    expect(overlay.style.height).toBe("33px");
+    window.dispatchEvent(pointer("pointerup", 100, 15));
+    expect(onHeaderDrop).toHaveBeenCalledWith(7);
+    expect(onDrop).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it("rechecks the release position and keeps body drops as splits", () => {
+    const onHeaderDrop = vi.fn();
+    const controller = createNewPaneDragController(handle, {
+      ghostLabel: "cli codex2",
+      slotRects: () => rects,
+      onDrop,
+      headerTargets: () => [{ ...PANE, bottom: 33 }],
+      onHeaderDrop,
+    });
+    handle.dispatchEvent(pointer("pointerdown", 500, 500));
+    window.dispatchEvent(pointer("pointermove", 100, 15));
+    window.dispatchEvent(pointer("pointerup", 180, 70));
+    expect(onDrop).toHaveBeenCalledWith(7, "right");
+    expect(onHeaderDrop).not.toHaveBeenCalled();
     controller.dispose();
   });
 

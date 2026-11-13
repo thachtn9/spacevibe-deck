@@ -1,3 +1,5 @@
+import { validatePanePin, type PanePin } from "../terminal/pinned-pane-layout";
+import { TERMINAL_REFERENCE } from "./persistent-terminal";
 import { countLeaves, type SerializedNode } from "./split-tree";
 import { validateLayout } from "./layout-validation";
 import { isTabDotColor, type TabDotColor } from "./tab-colors";
@@ -13,6 +15,9 @@ export const MAX_TASK_PROMPT_BYTES = 4096;
 export const TASK_PROMPT_CUT_MARK = "…";
 
 export interface SessionPane {
+  readonly pin?: PanePin;
+  readonly terminalRef?: string;
+  readonly account?: string | null;
   /** Polled cwd at capture time; null = unknown (spawn falls back to $HOME). */
   readonly cwd: string | null;
   /** PaneAgent string as classified (built-in id, or custom agent label); null = plain shell. */
@@ -44,6 +49,7 @@ export interface SessionPane {
 }
 
 export interface SessionTab {
+  readonly activePaneIndex?: number;
   readonly workspacePath: string | null;
   readonly layout: SerializedNode;
   /** Zipped to leafIds() left-to-right — same ordering contract as Preset.cwds. */
@@ -113,6 +119,7 @@ function validateSessionPane(raw: unknown): SessionPane {
   }
   const source = raw as Record<string, unknown>;
   return {
+    ...(validatePanePin(source.pin) ? { pin: validatePanePin(source.pin) } : {}),
     cwd: typeof source.cwd === "string" ? source.cwd : null,
     agent: typeof source.agent === "string" ? source.agent : null,
     // Drop-not-repair, and the pane survives it: a command nobody vetted would
@@ -127,6 +134,13 @@ function validateSessionPane(raw: unknown): SessionPane {
     // Same shape `agent-resume.ts` demands before an id may reach a PTY
     // write; a malformed id is dropped, not the pane. Emitted only when
     // present so a journal written before the field validates unchanged.
+    ...(typeof source.terminalRef === "string" && TERMINAL_REFERENCE.test(source.terminalRef)
+      ? { terminalRef: source.terminalRef }
+      : {}),
+    ...(typeof source.account === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(source.account)
+      ? { account: source.account }
+      : {}),
     ...(typeof source.sessionId === "string" && SESSION_ID_SAFE.test(source.sessionId)
       ? { sessionId: source.sessionId }
       : {}),
@@ -150,6 +164,11 @@ function validateSessionTab(raw: unknown): SessionTab | null {
   return {
     workspacePath: typeof source.workspacePath === "string" ? source.workspacePath : null,
     layout,
+    ...(Number.isSafeInteger(source.activePaneIndex) &&
+    Number(source.activePaneIndex) >= 0 &&
+    Number(source.activePaneIndex) < source.panes.length
+      ? { activePaneIndex: Number(source.activePaneIndex) }
+      : {}),
     panes: source.panes.map(validateSessionPane),
     name: typeof source.name === "string" ? source.name : null,
     dotColor: isTabDotColor(source.dotColor) ? source.dotColor : null,

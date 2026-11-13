@@ -1,3 +1,4 @@
+import { persistentTerminal } from "./persistent-terminal-client";
 import type { Pane } from "./pane";
 import type { AdoptionPayload, TransferClient } from "./transfer-client";
 
@@ -91,6 +92,7 @@ export async function adoptTransfer(token: string, deps: AdoptDeps): Promise<Ado
 
   try {
     await deps.transfer.commitTransfer(token);
+    await persistentTerminal.register(payload.paneId);
   } catch (err) {
     releaseHold();
     deps.discard(payload.paneId);

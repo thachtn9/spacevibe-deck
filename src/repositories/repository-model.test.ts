@@ -7,6 +7,7 @@ import {
   buildRail,
   filterRailToWorkspaceHistory,
   worktreeForPath,
+  worktreeForWorkspace,
 } from "./repository-model";
 
 const IDLE = {
@@ -34,7 +35,7 @@ function tab(key: number, workspacePath: string | null, over: Partial<TabView> =
 function repo(
   key: string,
   worktrees: readonly { path: string; branch?: string; prunable?: string }[],
-): RepositoryScan {
+): Extract<RepositoryScan, { kind: "repository" }> {
   return {
     kind: "repository",
     key,
@@ -52,6 +53,24 @@ function repo(
 }
 
 describe("worktreeForPath", () => {
+  it("resolves an opened symlink through its own scan without rewriting the workspace", () => {
+    const opened = "/home/user/data/project";
+    const scan = repo("/data/project/.git", [{ path: "/data/project" }]);
+    expect(worktreeForWorkspace(["/data/project"], opened, new Map([[opened, scan]]))).toBe(
+      "/data/project",
+    );
+    expect(worktreeForWorkspace(["/data/project"], opened, new Map())).toBeNull();
+  });
+  it("prefers an exact worktree path over another checkout's shared scan root", () => {
+    const scan = repo("/data/main/.git", [{ path: "/data/main" }, { path: "/data/side" }]);
+    expect(
+      worktreeForWorkspace(
+        ["/data/main", "/data/side"],
+        "/data/side",
+        new Map([["/data/side", scan]]),
+      ),
+    ).toBe("/data/side");
+  });
   it("takes the longest matching prefix, so a nested worktree wins", () => {
     const paths = ["/repo", "/repo/packages/web"];
     expect(worktreeForPath(paths, "/repo/packages/web/src")).toBe("/repo/packages/web");
@@ -69,6 +88,29 @@ describe("worktreeForPath", () => {
 });
 
 describe("buildRail", () => {
+  it("retains sessions opened via a directory symlink, including history-only checkouts", () => {
+    const opened = "/home/user/data/project";
+    const linked = "/home/user/data/side";
+    const scan = repo("/data/project/.git", [{ path: "/data/project" }, { path: "/data/side" }]);
+    const scans = new Map([
+      [opened, scan],
+      [linked, { ...scan, root: "/data/side" }],
+    ]);
+    const groups = filterRailToWorkspaceHistory(
+      buildRail({
+        tabs: [tab(1, opened)],
+        activeIndex: 0,
+        scans,
+        collapsed: new Set(),
+        archivedPaths: new Set(),
+      }),
+      [opened, linked],
+      scans,
+    );
+    expect(groups[0].worktrees).toHaveLength(2);
+    expect(groups[0].worktrees[0].tabs[0].workspacePath).toBe(opened);
+    expect(activeRepositoryTabIndexes([tab(1, opened)], 0, scans)).toEqual([0]);
+  });
   it("groups two worktrees of one repository under one header", () => {
     const scan = repo("/r/.git", [
       { path: "/r/main", branch: "main" },

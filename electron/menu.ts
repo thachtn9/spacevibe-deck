@@ -14,6 +14,7 @@
 import { Menu, app, type MenuItemConstructorOptions } from "electron";
 import {
   ACTION_REGISTRY,
+  RETIRED_ACTIONS,
   MACOS_KEYMAP,
   type ActionDefinition,
   type KeyBinding,
@@ -179,7 +180,7 @@ function itemsFor(submenu: MenuSubmenu, deps: MenuDeps): MenuItemConstructorOpti
   // menu carry the field in their literal type. Read it through the shared
   // interface rather than narrowing each member.
   const actions = (ACTION_REGISTRY as readonly ActionDefinition[]).filter(
-    (action) => action.menu?.submenu === submenu,
+    (action) => !RETIRED_ACTIONS.has(action.id) && action.menu?.submenu === submenu,
   );
   const keymap = deps.keymap ?? MACOS_KEYMAP;
   const items: MenuItemConstructorOptions[] = [];

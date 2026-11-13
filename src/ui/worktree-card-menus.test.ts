@@ -134,4 +134,17 @@ describe("actionGroups", () => {
       "split",
     ]);
   });
+  it("opens the exact checkout in VS Code or the file manager", () => {
+    const onOpenVSCode = vi.fn();
+    const onOpenFolder = vi.fn();
+    const rows = actionGroups(actions({ onOpenVSCode, onOpenFolder }), CHECKOUT).flat();
+    for (const id of ["vscode", "finder"]) {
+      const row = rows.find((r) => r.id === id);
+      if (row?.kind === "action") row.run();
+    }
+    expect(rows.find((r) => r.id === "vscode")).toMatchObject({ title: "Open in VS Code" });
+    expect(rows.find((r) => r.id === "finder")).toMatchObject({ title: "Open folder" });
+    expect(onOpenVSCode).toHaveBeenCalledExactlyOnceWith("/repo/wt");
+    expect(onOpenFolder).toHaveBeenCalledExactlyOnceWith("/repo/wt");
+  });
 });

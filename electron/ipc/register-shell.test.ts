@@ -44,7 +44,7 @@ beforeEach(() => {
 describe("window_set_title_bar_overlay", () => {
   // Only a Windows renderer calls it, but a stray call from any other host
   // has to answer without touching the window at all.
-  it.each(["darwin", "linux"] as const)("is a no-op on %s", (platform) => {
+  it.each(["darwin"] as const)("is a no-op on %s", (platform) => {
     registerShell(platform);
 
     expect(setOverlay(VALID)).toBeUndefined();
@@ -52,17 +52,20 @@ describe("window_set_title_bar_overlay", () => {
     expect(mocks.setTitleBarOverlay).not.toHaveBeenCalled();
   });
 
-  it("applies valid colours at the frame height on win32", () => {
-    registerShell("win32");
+  it.each(["win32", "linux"] as const)(
+    "applies valid colours at the frame height on %s",
+    (platform) => {
+      registerShell(platform);
 
-    setOverlay(VALID);
+      setOverlay(VALID);
 
-    expect(mocks.setTitleBarOverlay).toHaveBeenCalledExactlyOnceWith({
-      color: "#0a0a0a",
-      symbolColor: "#cbcbcb",
-      height: 34,
-    });
-  });
+      expect(mocks.setTitleBarOverlay).toHaveBeenCalledExactlyOnceWith({
+        color: "#0a0a0a",
+        symbolColor: "#cbcbcb",
+        height: 34,
+      });
+    },
+  );
 
   it.each([
     ["a colour the OS cannot parse", { ...VALID, color: "color-mix(in srgb, red, blue)" }],

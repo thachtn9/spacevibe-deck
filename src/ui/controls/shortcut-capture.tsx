@@ -119,7 +119,7 @@ export function ShortcutCapture({
         // Not an error to report — the user is mid-chord, still holding
         // modifiers down. Say what is missing and keep listening.
         hint.value =
-          platform === "windows"
+          platform === "windows" || platform === "linux"
             ? WINDOWS_REJECTION_HINT[result.reason]
             : REJECTION_HINT[result.reason];
         return;

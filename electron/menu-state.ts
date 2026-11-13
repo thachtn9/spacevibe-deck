@@ -11,9 +11,25 @@
  * duplicating them.
  */
 import { buildMenu } from "./menu";
-import { MACOS_KEYMAP, type KeyBinding } from "../src/terminal/action-registry";
+import { MACOS_KEYMAP, WINDOWS_KEYMAP, type KeyBinding } from "../src/terminal/action-registry";
 import { resolveKeymap, validateKeybindings } from "../src/lib/keybindings";
 import type { WindowRegistry } from "./window-lifecycle";
+
+/**
+ * The keymap the native menu advertises on THIS host.
+ *
+ * Linux joins Windows on the Ctrl-based keymap — see `keymapPlatform` in
+ * `src/lib/keybindings.ts` for the same rule on the renderer side. Without
+ * this the menu built `Command+…` accelerators for a Linux build, which
+ * Electron reads as Super and which therefore fired nothing.
+ */
+function menuKeymapPlatform(): "macos" | "windows" {
+  return process.platform === "win32" || process.platform === "linux" ? "windows" : "macos";
+}
+
+function defaultMenuKeymap(): readonly KeyBinding[] {
+  return menuKeymapPlatform() === "windows" ? WINDOWS_KEYMAP : MACOS_KEYMAP;
+}
 
 export interface MenuStateDeps {
   readonly registry: WindowRegistry;
@@ -40,7 +56,7 @@ export function createMenuState(deps: MenuStateDeps): MenuState {
    * `rebuildMenu` runs on every focus change, and re-reading the store on each
    * one would put a disk read on the focus path.
    */
-  let menuKeymap: readonly KeyBinding[] = MACOS_KEYMAP;
+  let menuKeymap: readonly KeyBinding[] = defaultMenuKeymap();
 
   /**
    * Web contents currently recording a chord — see `MenuDeps.suspendAccelerators`.
@@ -75,7 +91,7 @@ export function createMenuState(deps: MenuStateDeps): MenuState {
     const overrides = validateKeybindings(
       (settings as { keybindings?: unknown } | null)?.keybindings,
     );
-    const next = resolveKeymap("macos", overrides);
+    const next = resolveKeymap(menuKeymapPlatform(), overrides);
     menuKeymap = next;
     rebuildMenu();
   }

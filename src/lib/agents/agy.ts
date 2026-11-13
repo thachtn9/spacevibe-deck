@@ -8,8 +8,9 @@ const MODE = ["--mode"];
  */
 export const AGY: AgentDefinition = {
   id: "agy",
-  label: "Antigravity",
-  defaultCommand: "agy --dangerously-skip-permissions",
+  label: "AGY",
+  binary: "cli-agy",
+  defaultCommand: "cli-agy",
   url: "https://antigravity.google",
   // The page is client-rendered: read through a rendering fetch twice, both reads agreeing.
   // Windows lists a PowerShell and a CMD form; PowerShell is the one a Deck pane runs.
@@ -32,9 +33,9 @@ export const AGY: AgentDefinition = {
   // CLIs sharing a hue is the honest reading, and the header names which one.
   dotColor: "var(--cyan)",
   resume: {
-    id: (id) => `agy --conversation ${id}`,
-    latest: "agy --continue",
-    bare: "agy",
+    id: (id) => `cli-agy --conversation ${id}`,
+    latest: "cli-agy --continue",
+    bare: "cli-agy",
   },
   runtime: {
     modelFlag: "--model",

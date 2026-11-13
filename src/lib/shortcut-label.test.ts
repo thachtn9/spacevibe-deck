@@ -9,17 +9,22 @@ import {
 } from "./shortcut-label";
 
 describe("primaryModifierKeycap", () => {
-  it("is the Command glyph everywhere but Windows", () => {
+  it("is the Command glyph on macOS and the browser fallback", () => {
     expect(primaryModifierKeycap("macos")).toBe("⌘");
     expect(primaryModifierKeycap("unsupported")).toBe("⌘");
   });
 
   it("is Ctrl on Windows", () => {
     expect(primaryModifierKeycap("windows")).toBe("Ctrl");
+    expect(primaryModifierKeycap("linux")).toBe("Ctrl");
   });
 });
 
 describe("shortcutLabel", () => {
+  it("uses Ctrl-based terminal shortcuts on Linux", () => {
+    expect(shortcutLabel("split-row", "linux")).toBe("Ctrl+Shift+D");
+    expect(shortcutLabel("close-pane", "linux")).toBe("Ctrl+Shift+W");
+  });
   it("preserves the preferred macOS labels", () => {
     expect({
       splitRow: shortcutLabel("split-row", "macos"),

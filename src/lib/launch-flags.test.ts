@@ -49,7 +49,7 @@ describe("parseLaunchFlags / composeLaunchFlags", () => {
 
   it("reads --flag=value but only claims the whole token", () => {
     expect(roundTrip("codex", "codex --sandbox=workspace-write")).toBe(
-      "codex --sandbox workspace-write",
+      "cli-codex --sandbox workspace-write",
     );
     // agy's `--sandbox` is a toggle; `--sandbox=true` is not that token.
     expect(parseLaunchFlags("agy", "agy --sandbox=true")).toEqual({
@@ -81,7 +81,7 @@ describe("parseLaunchFlags / composeLaunchFlags", () => {
       roundTrip("claude", "claude --add-dir /tmp --verbose --ide --permission-mode auto"),
     ).toBe("claude --permission-mode auto --ide --verbose --add-dir /tmp");
     expect(composeLaunchFlags("codex", { search: "on", bypass: null }, "  ")).toBe(
-      "codex --search",
+      "cli-codex --search",
     );
   });
 

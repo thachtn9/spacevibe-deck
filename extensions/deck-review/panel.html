@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Deck Review</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <!-- Top Bar / Brand & Status -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+            <circle cx="12" cy="12" r="8" stroke-dasharray="4 2" />
+          </svg>
+        </span>
+        <div class="brand-text">
+          <h1>Deck Review</h1>
+          <span class="brand-subtitle">Codex Companion</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div id="connection" class="connection-badge" title="Deck Connection Status">
+          <span class="pulse-dot"></span>
+          <span class="status-label">Offline</span>
+        </div>
+        <button
+          id="settings"
+          class="icon-button"
+          aria-label="Connection settings"
+          title="Connection settings"
+        >
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Page Context Pill Bar -->
+    <div class="page-context-bar">
+      <div class="page-context-pill">
+        <svg class="globe-icon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+        <span id="page-name">Your browser, in review</span>
+      </div>
+    </div>
+
+    <!-- Live Status / Notice banner -->
+    <div id="status-container">
+      <p id="status" role="status">Connecting to Deck…</p>
+    </div>
+
+    <!-- Pairing Card (Collapsible) -->
+    <section id="pairing" class="card pairing-card" hidden>
+      <div class="card-header">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" class="inline-icon">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <h2>Pairing with Deck</h2>
+        </div>
+        <button id="refresh" class="pill-button small">
+          <svg viewBox="0 0 24 24" class="micro-icon">
+            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          Refresh
+        </button>
+      </div>
+      <p class="muted">Right-click any project folder in Deck and choose <strong>Browser Extension</strong> to obtain a 6-digit code.</p>
+      <form id="pair-form" class="pair-form">
+        <div class="input-with-button">
+          <input
+            id="code"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            required
+            autocomplete="off"
+            placeholder="000000"
+            class="code-input"
+          />
+          <button type="submit" class="primary-button">Connect</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="segmented-tabs" role="tablist" aria-label="Review views">
+      <button id="comments-tab" class="tab-button" role="tab" aria-selected="true" aria-controls="comments-view">
+        <svg viewBox="0 0 24 24" class="tab-icon">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        <span>Comments</span>
+        <span id="note-count" class="badge">0</span>
+      </button>
+      <button id="delivery-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="delivery-view">
+        <svg viewBox="0 0 24 24" class="tab-icon">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+        </svg>
+        <span>Delivery</span>
+        <span id="delivery-count" class="badge">0</span>
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="content-stage">
+      <!-- Tab 1: Comments View -->
+      <div id="comments-view" role="tabpanel" aria-labelledby="comments-tab">
+        <!-- Floating Tool Selector -->
+        <div class="toolbar-wrapper">
+          <div class="tools-segmented-pill" role="group" aria-label="Selection tools">
+            <button id="browse" class="tool-btn" aria-pressed="true" title="Browse freely (Esc)">
+              <svg viewBox="0 0 24 24">
+                <path d="m3 3 7 18 3-7 7-3L3 3Z" />
+              </svg>
+              <span>Browse</span>
+            </button>
+            <button id="element" class="tool-btn" aria-pressed="false" title="Inspect UI Element">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+                <rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="2 2" />
+              </svg>
+              <span>Element</span>
+            </button>
+            <button id="region" class="tool-btn" aria-pressed="false" title="Capture Area Region">
+              <svg viewBox="0 0 24 24">
+                <path d="M6 3H3v3M18 3h3v3M3 18v3h3M21 18v3h-3M9 3h6M3 9v6M21 9v6M9 21h6" />
+              </svg>
+              <span>Region</span>
+            </button>
+          </div>
+          <div class="tool-hint-container">
+            <p class="tool-hint" id="tool-hint">
+              Select an element or region to leave precise feedback.
+            </p>
+          </div>
+        </div>
+
+        <!-- Notes Section Header -->
+        <div class="section-title-bar">
+          <span class="section-label">Annotations</span>
+          <span class="section-tag">Drafts saved in Chrome</span>
+        </div>
+
+        <!-- Notes List Container -->
+        <div id="notes" class="notes-feed"></div>
+
+        <!-- Empty State Illustration -->
+        <div id="empty" class="empty-state">
+          <div class="empty-icon-wrap">
+            <svg viewBox="0 0 48 48">
+              <rect x="6" y="8" width="36" height="26" rx="4" />
+              <circle cx="14" cy="15" r="2" />
+              <circle cx="20" cy="15" r="2" />
+              <path d="M6 22h36" />
+              <path d="m20 40 8-6h12a4 4 0 0 0 4-4V26" />
+              <circle cx="24" cy="30" r="1.5" />
+            </svg>
+          </div>
+          <h3>Direct Feedback on UI</h3>
+          <p>Click <strong>Element</strong> or <strong>Region</strong> to point directly to what should change on this page.</p>
+          <div class="empty-hints">
+            <span class="hint-pill"><kbd>↑</kbd> Select parent</span>
+            <span class="hint-pill"><kbd>Enter</kbd> Confirm</span>
+            <span class="hint-pill"><kbd>Esc</kbd> Cancel</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Delivery Queue View -->
+      <div id="delivery-view" role="tabpanel" aria-labelledby="delivery-tab" hidden>
+        <div class="section-title-bar">
+          <span class="section-label">Delivery Timeline</span>
+          <span class="section-tag">Queued in Deck</span>
+        </div>
+        <div id="queue" class="queue-feed"></div>
+        <div id="queue-empty" class="empty-state small">
+          <p class="muted">No queued comments yet. Submitted comments will appear here.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer / Destination & Dispatch Dock -->
+    <footer class="app-footer">
+      <section id="workspace" class="destination-dock" hidden>
+        <div class="dock-header">
+          <span class="dock-label">Send to Agent</span>
+          <span id="target-state" class="agent-status-badge">Select conversation</span>
+        </div>
+        <div class="selectors-grid">
+          <div class="select-wrapper">
+            <label class="sr-only" for="source">Source Workspace</label>
+            <select id="source" aria-label="Source workspace"></select>
+            <svg class="select-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+          </div>
+          <div class="select-wrapper">
+            <label class="sr-only" for="target">Target Conversation</label>
+            <select id="target" aria-label="Target agent conversation"></select>
+            <svg class="select-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+          </div>
+        </div>
+      </section>
+
+      <button id="unlock" class="secondary-button unlock-btn" hidden>
+        I checked Deck — unlock drafts
+      </button>
+
+      <button id="send" class="primary-button send-cta" disabled>
+        <svg viewBox="0 0 24 24" class="send-icon">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+        </svg>
+        <span>Queue comments</span>
+      </button>
+      <div class="footer-meta">
+        <span class="footer-hint">Queued feedback waits until agent is idle</span>
+        <span class="kbd-shortcut"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+      </div>
+    </footer>
+
+    <script src="panel.js"></script>
+  </body>
+</html>

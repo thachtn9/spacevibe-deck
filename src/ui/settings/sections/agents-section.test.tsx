@@ -86,7 +86,7 @@ describe("AgentsSection", () => {
 
   // "Add agent"'s pill, found by its row label. It used to be found as the
   // LAST enabled `.cfg-btn` — every declared row also carries an enabled pill
-  // for its command — but that heuristic broke the moment the Token usage
+  // for its command — but that heuristic broke the moment the Quota
   // link row landed after it. Scoping by label is positional-drift-proof.
   const addButton = (): HTMLButtonElement => {
     const row = Array.from(host.querySelectorAll(".cfg-row")).find(

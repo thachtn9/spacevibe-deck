@@ -160,7 +160,7 @@ export function OpenBoard({
 }: OpenBoardProps) {
   const platform = getDesktopEnvironment().platform;
   const openFolderShortcut = formatShortcutBinding(
-    platform === "windows"
+    platform === "windows" || platform === "linux"
       ? { key: "o", ctrl: true, shift: true, action: "new-tab" }
       : { key: "o", meta: true, action: "new-tab" },
     platform,
@@ -613,7 +613,7 @@ export function OpenBoard({
     if (
       key === "o" &&
       hasPrimaryModifier(event) &&
-      (getDesktopEnvironment().platform !== "windows" || event.shiftKey)
+      (getDesktopEnvironment().platform === "macos" || event.shiftKey)
     ) {
       if (effectivePending === null) {
         void pickFolder();

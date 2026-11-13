@@ -11,6 +11,7 @@ import * as pty from "node-pty";
 import { app } from "electron";
 import * as macos from "../platform/macos";
 import * as windows from "../platform/windows";
+import * as linux from "../platform/linux";
 
 export interface SpawnOptions {
   readonly cols: number;
@@ -70,7 +71,7 @@ export function validateResizeOptions(payload: unknown): ResizeOptions {
 }
 
 function platform() {
-  return process.platform === "win32" ? windows : macos;
+  return process.platform === "win32" ? windows : process.platform === "linux" ? linux : macos;
 }
 
 /**
@@ -143,6 +144,7 @@ export function buildEnv(
     TERM_PROGRAM: "SpaceVibeDeck",
     TERM_PROGRAM_VERSION: version,
   };
+  delete env.ELECTRON_RUN_AS_NODE;
   if (process.platform === "darwin") {
     env.ConEmuANSI = "ON";
   }
@@ -196,7 +198,11 @@ export function spawnShell(options: SpawnOptions, pane?: PaneEnv): SpawnedShell 
     cols: options.cols,
     rows: options.rows,
     cwd,
-    env: buildEnv(process.env, app.getVersion(), pane) as Record<string, string>,
+    env: buildEnv(
+      process.env,
+      app?.getVersion() ?? process.env.DECK_VERSION ?? "unknown",
+      pane,
+    ) as Record<string, string>,
     encoding: null,
   });
   return {

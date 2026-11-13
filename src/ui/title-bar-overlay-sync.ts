@@ -26,8 +26,9 @@ export interface TitleBarOverlaySyncInput extends FrameCornerState {
  * no-op.
  */
 export function useTitleBarOverlaySync({ settings, ...corner }: TitleBarOverlaySyncInput): void {
+  const platform = getDesktopEnvironment().platform;
   const overlay =
-    getDesktopEnvironment().platform === "windows"
+    platform === "windows" || platform === "linux"
       ? titleBarOverlayColors(resolveTheme(settings), corner)
       : null;
   const color = overlay?.color;

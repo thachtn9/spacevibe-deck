@@ -104,6 +104,32 @@ const agentInfo = (id: number, agent: string): PaneProcessInfo =>
 const shellInfo = (id: number): PaneProcessInfo => processInfo(id, CWD, "zsh", "idle-shell", null);
 
 describe("PaneView ordinals, start time and last agent", () => {
+  it("projects the live account before a session exists and refreshes when it changes", async () => {
+    vi.useFakeTimers();
+    const infos = new Map<number, PaneProcessInfo>();
+    const { tm } = setupControllable(infos);
+    try {
+      await tm.materialize({ layout: null, cwds: [CWD] });
+      await tm.init();
+      const id = tabViews.value[0].panes![0].paneId;
+      infos.set(id, { ...agentInfo(id, "codex"), account: "codex4" });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(tabViews.value[0].panes?.[0]).toMatchObject({
+        agent: "codex",
+        account: "codex4",
+        sessionId: null,
+      });
+      infos.set(id, { ...agentInfo(id, "codex"), account: "codex2" });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(tabViews.value[0].panes?.[0].account).toBe("codex2");
+      infos.set(id, shellInfo(id));
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(tabViews.value[0].panes?.[0].account).toBeUndefined();
+    } finally {
+      tm.dispose();
+      vi.useRealTimers();
+    }
+  });
   it("numbers each pane once and keeps the number across a split", async () => {
     const { tm } = setup({});
     await tm.materialize({ layout: null, cwds: [CWD] });

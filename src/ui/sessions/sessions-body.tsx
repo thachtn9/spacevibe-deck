@@ -1,5 +1,11 @@
+import { ArrowClockwise } from "@phosphor-icons/react";
+import { DeckIcon, CHROME_ICON } from "../controls/deck-icon";
+import {
+  refreshSessions,
+  sessionsLoadState,
+  sessionAgentFilter,
+} from "../../sessions/sessions-store";
 import type { SessionEntry } from "../../lib/session-history";
-import { sessionAgentFilter } from "../../sessions/sessions-store";
 import { SessionsNav, sessionsTabId, SESSIONS_PANEL_ID } from "./sessions-nav";
 import { SessionsList } from "./sessions-list";
 
@@ -31,7 +37,21 @@ interface SessionsBodyProps {
 export function SessionsBody({ variant = "screen", onResume }: SessionsBodyProps) {
   const content = (
     <>
-      <SessionsNav variant={variant === "dock" ? "compact" : "rail"} />
+      <SessionsNav
+        variant={variant === "dock" ? "compact" : "rail"}
+        actions={
+          <button
+            type="button"
+            class="iconbtn sessions-refresh"
+            aria-label="Refresh sessions"
+            title="Refresh sessions"
+            disabled={sessionsLoadState.value.status === "loading"}
+            onClick={() => void refreshSessions()}
+          >
+            <DeckIcon icon={ArrowClockwise} size={CHROME_ICON} />
+          </button>
+        }
+      />
       <section
         class="sessions-screen__section"
         id={SESSIONS_PANEL_ID}

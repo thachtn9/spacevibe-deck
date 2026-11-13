@@ -20,7 +20,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app } from "electron";
+import { app, shell } from "electron";
 import { hasRejectedRoot } from "./shell-integration";
 
 /** Mirrors `MAX_PATH_BYTES` in `links.ts` — one cap, stated in both halves. */
@@ -283,7 +283,35 @@ async function iconFor(bundle: string): Promise<string | null> {
  * Settings › Agents splits Installed from Available: the question the menu
  * answers is "what can Deck reach", not "what exists in the world".
  */
+/** Resolve fixed app names without executing a login shell or accepting relative PATH entries. */
+function linuxCode(): string | null {
+  const roots = [
+    ...(process.env.PATH ?? "").split(path.delimiter),
+    "/snap/bin",
+    "/usr/share/code/bin",
+  ];
+  for (const root of roots) {
+    if (!path.isAbsolute(root)) continue;
+    const executable = path.join(root, "code");
+    try {
+      fs.accessSync(executable, fs.constants.X_OK);
+      if (fs.statSync(executable).isFile()) return executable;
+    } catch {
+      /* Try the next installed location. */
+    }
+  }
+  return null;
+}
+
 export async function listExternalApps(): Promise<InstalledApp[]> {
+  if (process.platform === "linux") {
+    const found: InstalledApp[] = [
+      { id: "finder", label: "File manager", group: "files", iconDataUrl: null },
+    ];
+    if (linuxCode())
+      found.unshift({ id: "vscode", label: "VS Code", group: "editor", iconDataUrl: null });
+    return found;
+  }
   if (process.platform !== "darwin") {
     // Windows and Linux bundle layouts are unmodelled (Gate C). An empty list
     // is honest: the caller then shows no menu rather than a menu of guesses.
@@ -377,7 +405,7 @@ export function resolveTarget(
  * data and can never become a second command.
  */
 export function openInApp(request: OpenInAppRequest): Promise<void> {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && process.platform !== "linux") {
     throw new Error("Opening an app is unavailable on this platform.");
   }
   const entry = EXTERNAL_APP_CATALOG.find((item) => item.id === request.appId);
@@ -396,6 +424,24 @@ export function openInApp(request: OpenInAppRequest): Promise<void> {
   }
   if (hasRejectedRoot(target)) {
     throw new Error("The path to open must not be a network location.");
+  }
+  if (process.platform === "linux") {
+    if (!fs.existsSync(target)) throw new Error("The folder or file no longer exists.");
+    if (request.isDirectory && !fs.statSync(target).isDirectory())
+      throw new Error("That path is not a folder.");
+    if (request.appId === "finder") {
+      const folder = request.isDirectory ? target : path.dirname(target);
+      return shell.openPath(folder).then((error) => {
+        if (error) throw new Error(error);
+      });
+    }
+    if (request.appId === "vscode") {
+      const executable = linuxCode();
+      if (!executable)
+        throw new Error("VS Code is not installed or its code command is unavailable.");
+      return run(executable, ["--new-window", target]).then(() => {});
+    }
+    throw new Error("That app is not supported on Linux.");
   }
   const bundle = bundlePath(entry);
   if (bundle === null) {

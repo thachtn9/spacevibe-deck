@@ -354,7 +354,7 @@ export function AgentsSection() {
         </ConfigRow>
       </SettingsGroup>
       <SettingsGroup title="Usage">
-        <ConfigRow label="Token usage" desc="Tokens and estimated cost for Claude Code and Codex">
+        <ConfigRow label="Quota" desc="Remaining AGY and Codex quota from CLI Manager">
           <button type="button" class="cfg-btn" onClick={openUsage}>
             open …
           </button>

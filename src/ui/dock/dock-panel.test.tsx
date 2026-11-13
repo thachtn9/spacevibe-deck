@@ -290,9 +290,9 @@ describe("DockPanel header", () => {
     expect(header.lastElementChild).toBe(hide);
 
     const chips = header.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect(chips.length).toBe(3);
+    expect(chips.length).toBe(2);
     act(() => {
-      chips[1].click();
+      chips[0].click();
     });
     expect(onSelectTab).toHaveBeenCalledWith("usage");
   });
@@ -362,7 +362,7 @@ describe("DockPanel header", () => {
     const labels = Array.from(host.querySelectorAll('[role="tab"]')).map((node) =>
       node.getAttribute("aria-label"),
     );
-    expect(labels).toEqual(["File explorer", "Token usage"]);
+    expect(labels).toEqual(["Quota"]);
   });
 });
 

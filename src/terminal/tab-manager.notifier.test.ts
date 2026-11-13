@@ -226,6 +226,8 @@ describe("createTabManager notifier integration — fake notifier (Task 23)", ()
       const n = maybeNotify.mock.calls[0][0];
       expect(n.paneId).toBe(1);
       expect(n.kind).toBe("completed");
+      expect(n.source).toBe("osc-progress");
+      expect(n.confidence).toBe("explicit");
       expect(n.workspaceLabel).toBe("repo");
       expect(n.agentLabel).toBe("claude");
 
@@ -233,6 +235,24 @@ describe("createTabManager notifier integration — fake notifier (Task 23)", ()
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps a generic terminal notification silent while retaining its in-app attention", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, processInfo(1, "/repo", "claude", "agent", "claude")],
+    ]);
+    windowFocus.initialFocused = false;
+    settings.value = { ...settings.value, agentNotifications: true };
+    const { tm, emitSignal } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], { workspacePath: "/repo" });
+    await tm.init();
+    await flush();
+
+    emitSignal(1, { kind: "requested", source: "osc-notification" });
+
+    expect(tabViews.value[0].attention?.kind).toBe("requested");
+    expect(sendAgentNotification).not.toHaveBeenCalled();
+    tm.dispose();
   });
 
   it("routes a transition through maybeNotify even while the window is foreground — window-focus gating is the notifier's job, not TabManager's", async () => {

@@ -3,9 +3,9 @@ import type { CategoryId } from "./active-category-store";
 import { AppearanceSection } from "./sections/appearance-section";
 import { TerminalSection } from "./sections/terminal-section";
 import { AgentsSection } from "./sections/agents-section";
-import { BrowserSection } from "./sections/browser-section";
 import { LinksEditorSection } from "./sections/links-editor-section";
 import { NotificationsSection } from "./sections/notifications-section";
+import { RemoteSection } from "./sections/remote-section";
 import { PrivacySection } from "./sections/privacy-section";
 import { ShortcutsSection } from "./sections/shortcuts-section";
 import { AboutSection } from "./sections/about-section";
@@ -67,12 +67,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     Section: AppearanceSection,
   },
   {
-    id: "browser",
-    label: "Browser",
-    description: "Choose a home page for when there is no previous browser page to restore.",
-    Section: BrowserSection,
-  },
-  {
     id: "terminal",
     label: "Terminal",
     description: "Tune how much scroll history each pane keeps.",
@@ -101,6 +95,12 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     label: "Notifications",
     description: "Decide when background agents should ask for attention.",
     Section: NotificationsSection,
+  },
+  {
+    id: "remote",
+    label: "Remote",
+    description: "Connect your iPhone to the sessions running on this computer.",
+    Section: RemoteSection,
   },
   {
     id: "about",

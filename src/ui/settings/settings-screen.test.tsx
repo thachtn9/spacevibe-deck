@@ -229,29 +229,14 @@ describe("SettingsScreen — the interaction foundation", () => {
     expect(document.activeElement).toBe(tabbables()[0]);
   });
 
-  it("lets Escape revert an active draft before it can close the screen", () => {
+  it("omits retired Browser settings and keeps Escape available", () => {
     const onClose = mount();
+    expect(host.querySelector("#settings-tab-browser")).toBeNull();
+    expect(host.querySelector('input[aria-label="Browser home address"]')).toBeNull();
     act(() => {
-      host.querySelector<HTMLButtonElement>('[role="tab"]#settings-tab-browser')?.click();
-    });
-    const field = host.querySelector<HTMLInputElement>('input[aria-label="Browser home address"]');
-    expect(field).not.toBeNull();
-    const saved = field?.value ?? "";
-    act(() => {
-      field!.value = "http://localhost:9999";
-      field!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    act(() => {
-      field!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    });
-
-    expect(onClose).not.toHaveBeenCalled();
-    expect(field!.value).toBe(saved);
-
-    // The draft is clean now, so the next Escape means what it always means.
-    act(() => {
-      field!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      host
+        .querySelector("button")!
+        .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -349,7 +334,6 @@ const EXPECTED_ROWS = [
   "Show pane bar",
   "Show status bar",
   // browser
-  "Home address",
   // terminal
   "Scrollback",
   // agents. The built-in agents themselves are deliberately absent: since
@@ -359,7 +343,7 @@ const EXPECTED_ROWS = [
   // coverage is `launch-profile-editor.test.tsx`.
   "Add agent",
   "Add command",
-  "Token usage",
+  "Quota",
   "Pinned agents",
   // links & editor. One row, not two, since 2026-08-19: `editorId` +
   // `editorCommand` became the single `externalAppId`, so the custom-command

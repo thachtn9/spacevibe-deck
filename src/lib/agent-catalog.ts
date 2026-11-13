@@ -2,11 +2,8 @@
  * The agent catalog: what Deck can launch, and how a stored choice becomes a
  * command line. Pure — no signals, no Tauri, no DOM.
  *
- * The load-bearing invariant is that a built-in agent's id, its binary name
- * and its command are the SAME string. `lastAgent` in workspace recents has
- * been storing bare binary names since long before user-declared agents
- * existed, so keeping ids identical for the built-ins means every entry
- * already on disk resolves unchanged and there is no migration to get wrong.
+ * Built-in ids remain stable for icons and saved sessions. A local `binary`
+ * override changes discovery and launch without changing that identity.
  *
  * The built-ins themselves are defined one file each under `agents/`; this
  * module sees only the ones the registry has not withdrawn.
@@ -154,8 +151,9 @@ export function resolveAgentCommand(
   id: string,
   customAgents: readonly CustomAgent[],
 ): string | null {
-  if (isBuiltinAgentId(id)) {
-    return id;
+  const builtin = BUILTIN_AGENTS.find((agent) => agent.id === id);
+  if (builtin !== undefined) {
+    return builtin.binary ?? builtin.id;
   }
   const custom = customAgents.find((agent) => agent.id === id);
   return custom?.command ?? null;
@@ -176,7 +174,7 @@ export function catalogLaunchCommand(
 ): string | null {
   const builtin = BUILTIN_AGENTS.find((agent) => agent.id === id);
   if (builtin !== undefined) {
-    return builtin.defaultCommand ?? builtin.id;
+    return builtin.defaultCommand ?? builtin.binary ?? builtin.id;
   }
   return customAgents.find((agent) => agent.id === id)?.command ?? null;
 }
@@ -213,7 +211,7 @@ export function agentOptions(
   const off = new Set(disabledAgents);
   const options: AgentOption[] = [];
   for (const builtin of BUILTIN_AGENTS) {
-    const path = paths.get(builtin.id);
+    const path = paths.get(builtin.binary ?? builtin.id);
     if (path !== undefined && !off.has(builtin.id)) {
       options.push({
         id: builtin.id,
@@ -246,7 +244,7 @@ export function agentOptions(
  * the frontend is not the trust boundary.
  */
 export function probeNames(customAgents: readonly CustomAgent[]): readonly string[] {
-  const names = BUILTIN_AGENTS.map((agent) => agent.id);
+  const names = BUILTIN_AGENTS.map((agent) => agent.binary ?? agent.id);
   const seen = new Set(names);
   for (const agent of customAgents) {
     const binary = agentBinary(agent.command);

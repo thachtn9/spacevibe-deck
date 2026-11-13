@@ -1,3 +1,14 @@
+import { nearestInDirection, type FocusDirection } from "../lib/pane-geometry";
+import { shellEscapePaths } from "../lib/shell-escape";
+import { createPinnedStage } from "./pinned-stage";
+import { accountFromCommand } from "../lib/persistent-terminal";
+import { persistentTerminal } from "./persistent-terminal-client";
+import { ReviewInputGuard, deliverReviewPrompt } from "./web-review-delivery";
+import { webReviewHost } from "../host/web-review-host";
+import type { ReviewCandidate, ReviewDelivery, ReviewTarget } from "../lib/web-review";
+import type { SessionActivity } from "../lib/agent-resume";
+import { folderShellRoot } from "../ui/folder-shell-state";
+import { codeViewerRoot } from "../files/code-viewer-store";
 import { agentLaunchPage, eventInOpenLaunchPopover } from "../launcher/agent-launch-page-store";
 import {
   resolveAgentLaunchTarget,
@@ -56,7 +67,7 @@ import { lastSessionIdFor, noteExplicitTail } from "./session-tail-store";
 import { usageConsentOpen } from "../telemetry/consent-store";
 import { activeKeymapPlatform } from "./active-keymap";
 import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
-import { TIER_RANK } from "./action-registry";
+import { RETIRED_ACTIONS, TIER_RANK } from "./action-registry";
 import {
   isActionPerformable,
   type PerformableContext,
@@ -66,11 +77,7 @@ import { installFileDrop } from "./file-drop";
 import { createTerminalManager, type TerminalManager } from "./terminal-manager";
 import { createPaneInfoPoller } from "./pane-info-poller";
 import { createAgentActivity } from "./agent-activity";
-import {
-  createAgentAttentionTracker,
-  type AttentionKind,
-  type PaneAttentionSnapshot,
-} from "./agent-attention";
+import { createAgentAttentionTracker, type PaneAttentionSnapshot } from "./agent-attention";
 import { createAgentNotifier, type AgentNotifier } from "./agent-notifier";
 import type { PaneAttentionSignal } from "./pane";
 import { popClosedTab, pushClosedTab, type ClosedTabSnapshot } from "./closed-tabs";
@@ -80,6 +87,7 @@ import { activeAfterClose } from "./tab-close";
 import { freshCwd, freshPaneInfo } from "./pane-info";
 import { forgetTaskPrompt, noteTaskPrompt, paneTaskPrompts } from "./board-task-prompts";
 import { restartCommandFor } from "./pane-restart";
+import { switchPaneAccount as switchAccount } from "./pane-account-switch";
 import {
   launchClearsDraft,
   promptReadyToSend,
@@ -180,6 +188,12 @@ export function createTabManager(
   deps: TabManagerDeps,
 ): TabManager {
   const tabs: TabEntry[] = [];
+  let keyboardPaneId: number | null = null;
+  const pinnedStage = createPinnedStage(
+    host,
+    (id) => ownerOf(id)?.manager,
+    () => syncViews(),
+  );
   const unlisteners: UnlistenFn[] = [];
   const promptStaging = deps.promptStaging ?? TASK_PROMPT_STAGING_ENABLED;
   const surfaces = deps.surfaces ?? INERT_SURFACES;
@@ -218,6 +232,14 @@ export function createTabManager(
     readonly running: boolean;
   }
   const paneGenerations = new Map<number, PaneGeneration>();
+  // Live attachment metadata is bound to the first observed agent process.
+  // Retire it on process replacement or once polling supplies a fresh identity.
+  const attachedSessions = new Map<number, { agent: string; sessionId: string; pid?: number }>();
+  const restoredActivity = new Set<number>();
+  const transcriptActivities = new Map<
+    number,
+    { pid: number; sessionId: string; fact: SessionActivity }
+  >();
   // An incomplete task handoff belongs to the exact pane that received (or
   // should receive) the prompt, not merely to the tab. A split can replace
   // pane 1 with another instance of the same agent; resolving the tab's first
@@ -277,9 +299,13 @@ export function createTabManager(
   let windowsStartupSpawns = 0;
   // Panes write user input through this wrapper so the tracker can tell
   // keystroke echo from real output; everything else passes straight through.
+  const accountSwitchInputBlocks = new Set<number>();
+  const reviewInputBlocks = new Set<number>();
+  const reviewInput = new ReviewInputGuard();
   const paneIo: PtyClient = {
     ...pty,
     writePty(id, data) {
+      if (accountSwitchInputBlocks.has(id)) return Promise.resolve();
       activity.noteInput(id);
       return pty.writePty(id, data);
     },
@@ -374,7 +400,11 @@ export function createTabManager(
    * An opencode pane asks main for a port first. Claude obtains its session
    * identity from SessionStart or the registry, including manual launches.
    */
-  async function prepareLaunch({ id, command }: AgentLaunchEntry): Promise<AgentLaunchEntry> {
+  async function prepareLaunch(
+    { id, command }: AgentLaunchEntry,
+    accountSwitch = false,
+  ): Promise<AgentLaunchEntry> {
+    command = await persistentTerminal.prepareLaunch(id, command, accountSwitch);
     if (!signalsEnabled) return { id, command };
     const adapters = settings.value.agentSignalAdapters;
     const platform = environment.platform;
@@ -399,12 +429,7 @@ export function createTabManager(
     entries: readonly AgentLaunchEntry[],
     canArm?: () => boolean,
   ): Promise<boolean> {
-    if (!signalsEnabled) {
-      if (canArm?.() === false) return false;
-      launcher.arm(entries);
-      return true;
-    }
-    const armed = await Promise.all(entries.map(prepareLaunch));
+    const armed = await Promise.all(entries.map((entry) => prepareLaunch(entry)));
     if (!disposed && canArm?.() !== false) {
       launcher.arm(armed);
       return true;
@@ -459,6 +484,54 @@ export function createTabManager(
     return active >= 0 && active < tabs.length ? tabs[active].manager : null;
   }
 
+  function inputManager(): TerminalManager | null {
+    return keyboardPaneId !== null && pinnedStage.has(keyboardPaneId)
+      ? (ownerOf(keyboardPaneId)?.manager ?? activeManager())
+      : activeManager();
+  }
+
+  function visiblePaneRects() {
+    return [...(activeManager()?.slotRects() ?? []), ...pinnedStage.slotRects()];
+  }
+
+  function cyclePaneFocus(step: 1 | -1): void {
+    if (!pinnedStage.ids().length) {
+      activeManager()?.cycleFocus(step);
+      return;
+    }
+    const ids = visiblePaneRects().map((rect) => rect.id);
+    if (!ids.length) return;
+    const current = ids.indexOf(inputManager()?.activePaneId() ?? -1);
+    const id = ids[(current + step + ids.length) % ids.length];
+    ownerOf(id)?.manager.focusPane(id);
+  }
+
+  function focusPaneDirection(direction: FocusDirection): void {
+    if (!pinnedStage.ids().length) {
+      activeManager()?.focusDirection(direction);
+      return;
+    }
+    const current = inputManager()?.activePaneId();
+    if (current == null) return;
+    const id = nearestInDirection(visiblePaneRects(), current, direction);
+    if (id !== null) ownerOf(id)?.manager.focusPane(id);
+  }
+
+  function pinPane(id: number, edge: Edge = "right", targetPaneId?: number): boolean {
+    if (!pinnedStage.pin(id, edge, undefined, targetPaneId)) return false;
+    ownerOf(id)?.manager.focusPane(id);
+    return true;
+  }
+
+  function unpinPane(id: number): void {
+    const entry = ownerOf(id);
+    pinnedStage.unpin(id);
+    if (entry) {
+      showTab(tabs.indexOf(entry), true);
+      entry.manager.focusPane(id);
+    }
+  }
+
   /**
    * Hand keyboard focus to whatever owns the stage right now: the active
    * non-terminal surface when one holds it, otherwise the active tab's
@@ -475,7 +548,7 @@ export function createTabManager(
       surfaces.focus();
       return;
     }
-    activeManager()?.focusActive();
+    inputManager()?.focusActive();
   }
 
   /** Workspace of the active tab; null when it has none (or no tab). */
@@ -484,6 +557,11 @@ export function createTabManager(
   }
 
   function syncViews(): void {
+    pinnedStage.setWorkspaceVisible(
+      activeManager()
+        ?.paneIds()
+        .some((id) => !pinnedStage.has(id)) ?? false,
+    );
     if (!settings.value.agentSignalAdapters.codex) tracker.releaseCodexLifecycle();
     // Number every live pane BEFORE any view is built: a pane split in this
     // very sync must already have its ordinal, or the first render after a
@@ -535,6 +613,11 @@ export function createTabManager(
       // make a `+N` count add up.
       const panes: readonly PaneView[] = paneIds.map((id) => {
         const snap = tracker.snapshot(id);
+        const processInfo = poller.infoFor(id);
+        if (processInfo?.kind === "agent" && processInfo.processId && snap) {
+          reviewInput.observe(id, `${processInfo.processId}:${processInfo.codexSessionId ?? processInfo.agySessionId ?? ""}`,
+            snap.phase, snap.phaseConfidence);
+        }
         const live = explicitAgent(poller.infoFor(id));
         // An agent that ENDED keeps its name on the projection until the end
         // is acknowledged (stage 0, 2026-09-03): the poller says "shell" the
@@ -579,9 +662,13 @@ export function createTabManager(
           }
         }
         const generation = paneGenerations.get(id);
+        const account = poller.infoFor(id)?.account ?? accountFromCommand(launchCommandFor(id));
         return {
           paneId: id,
+          ...(pinnedStage.has(id) ? { pinned: true } : {}),
           agent,
+          ...(account ? { account } : {}),
+          ...(poller.infoFor(id)?.account ? { accountIsLive: true } : {}),
           attention: snap?.attention ?? "none",
           phase: snap?.phase ?? "unknown",
           confidence: snap?.confidence ?? "explicit",
@@ -594,7 +681,9 @@ export function createTabManager(
           // `paneId` above is this tab's own `activePaneId()`, already read
           // for the header info — so the rail's focused row (DL-27.22) costs
           // one comparison here and no second call into the manager.
-          focused: id === paneId,
+          focused: pinnedStage.has(id)
+            ? id === keyboardPaneId
+            : id === paneId && !pinnedStage.has(keyboardPaneId ?? -1),
           ordinal: paneOrdinalById.get(id),
           startedAt: generation?.startedAt,
           lastAgent: generation?.agent,
@@ -625,7 +714,7 @@ export function createTabManager(
       );
     });
     activeTabIndex.value = active;
-    const manager = activeManager();
+    const manager = inputManager();
     const paneId = manager?.activePaneId() ?? null;
     const info = paneId === null ? undefined : poller.infoFor(paneId);
     statusInfo.value = {
@@ -647,6 +736,9 @@ export function createTabManager(
       if (!live.includes(id)) {
         paneOrdinalById.delete(id);
         paneGenerations.delete(id);
+        attachedSessions.delete(id);
+        restoredActivity.delete(id);
+        transcriptActivities.delete(id);
         forgetTaskPrompt(id);
       }
     }
@@ -656,15 +748,16 @@ export function createTabManager(
     return tabs.flatMap((tab) => tab.manager.paneIds());
   }
 
-  // Per-pane identity of the last ATTENTION KIND actually forwarded to the
+  // Per-pane identity of the last ATTENTION KIND + SOURCE forwarded to the
   // notifier — the dedupe key `maybeNotify` uses below. The tracker bumps
   // `revision` on ANY visible-signature change, including a PHASE-ONLY
   // re-emit of an already-latched kind (e.g. the agent→shell poll's
   // working→idle, or `pty:exit`'s idle→exited) — neither changes `attention`.
   // Deduping on raw revision alone (the notifier's own layer) would still
   // fire on those, so this map is the layer that actually prevents the
-  // duplicate: only a NEWLY raised or ESCALATED kind gets forwarded.
-  const lastNotifiedKind = new Map<number, AttentionKind>();
+  // duplicate: only a newly raised/escalated kind or a source upgrade gets
+  // forwarded.
+  const lastNotifiedAttention = new Map<number, string>();
 
   /**
    * What each pane launched with. Process classification recovers the BINARY a
@@ -675,27 +768,27 @@ export function createTabManager(
 
   /**
    * ONE choke point for every tracker transition that might be worth a
-   * native notification — every call site below that gets a non-null
+   * sound alert — every call site below that gets a non-null
    * snapshot back from a tracker mutation routes it here. Label derivation
    * mirrors the sidebar's own `tab.name ?? workspaceLabel(tab.workspacePath)`
    * (workspace-sidebar.tsx) — never raw terminal/OSC text.
    *
    * Dedupes on the ATTENTION LATCH IDENTITY, not the raw snapshot revision:
-   * `snap.attention === "none"` only resets `lastNotifiedKind` (so a future
+   * `snap.attention === "none"` only resets `lastNotifiedAttention` (so a future
    * re-raise of any kind notifies again) and never itself notifies; a
-   * `snap.attention` equal to the last-forwarded kind is a phase-only
-   * re-emit of the same latched attention and is dropped. Only a kind that
-   * differs from the last one forwarded (a fresh latch, or an escalation)
-   * reaches `notifier.maybeNotify` — which still owns the actionable-kind +
-   * background + unsent-revision policy as a harmless second layer.
+   * kind and source equal to the last-forwarded identity is a phase-only
+   * re-emit and is dropped. A source upgrade from a generic terminal signal
+   * to an agent-owned protocol still reaches the notifier, which owns the
+   * audible-source, background and unsent-revision policy.
    */
   function maybeNotify(id: number, snap: PaneAttentionSnapshot): void {
-    const prevKind = lastNotifiedKind.get(id) ?? "none";
-    lastNotifiedKind.set(id, snap.attention);
+    const identity = `${snap.attention}:${snap.source ?? "none"}`;
+    const previous = lastNotifiedAttention.get(id) ?? "none:none";
+    lastNotifiedAttention.set(id, identity);
     if (snap.attention === "none") {
       return; // reset only — a future re-raise of any kind will notify
     }
-    if (snap.attention === prevKind) {
+    if (identity === previous) {
       return; // same latched kind re-emitted (phase-only change) — no dup
     }
     const owner = tabs.find((t) => t.manager.paneIds().includes(id));
@@ -706,6 +799,8 @@ export function createTabManager(
       paneId: id,
       revision: snap.revision,
       kind: snap.attention,
+      source: snap.source,
+      confidence: snap.confidence,
       workspaceLabel: label,
       agentLabel: snap.agentLabel,
     });
@@ -715,13 +810,13 @@ export function createTabManager(
   function pruneNotifiedKinds(live: readonly number[]): void {
     const keep = new Set(live);
     const doomed: number[] = [];
-    for (const id of lastNotifiedKind.keys()) {
+    for (const id of lastNotifiedAttention.keys()) {
       if (!keep.has(id)) {
         doomed.push(id);
       }
     }
     for (const id of doomed) {
-      lastNotifiedKind.delete(id);
+      lastNotifiedAttention.delete(id);
     }
   }
 
@@ -747,10 +842,22 @@ export function createTabManager(
   }
 
   const callbacks = {
+    onPaneReplaced(oldId: number, newId: number): void {
+      const placement = pinnedStage.placement(oldId);
+      if (placement) {
+        pinnedStage.unpin(oldId);
+        pinnedStage.pin(newId, placement.edge, placement);
+      }
+    },
     onPaneInput(id: number): void {
       if (tracker.noteInput(id)) activity.noteInput(id, true);
     },
+    onPaneInputData(id: number, data: string): void {
+      reviewInput.input(id, data);
+    },
     onLayoutChange(): void {
+      pinnedStage.prune();
+      reviewInput.prune(allPaneIds());
       syncViews();
       const live = allPaneIds();
       launcher.prune(live);
@@ -780,6 +887,9 @@ export function createTabManager(
       }
     },
     onPaneFocus(id: number): void {
+      keyboardPaneId = id;
+      pinnedStage.focused(id);
+      if (pinnedStage.ids().length) syncViews();
       if (!windowFocused) return; // only ack when the window is foreground
       const ackSnap = tracker.acknowledge(id); // clears attention+unread, not phase
       if (ackSnap !== null) {
@@ -806,22 +916,24 @@ export function createTabManager(
     layout: SerializedNode | null,
     cwds: readonly (string | null)[] = [],
     workspacePath: string | null = null,
-    options: Pick<MaterializeIntent, "canCommit" | "focusOnInit"> = {},
+    options: Pick<MaterializeIntent, "canCommit" | "focusOnInit" | "attachedPanes"> = {},
   ): Promise<TabEntry | null> {
     if (options.canCommit?.() === false) return null;
     const container = document.createElement("div");
     container.className = "tab-stage";
     container.style.display = "none";
-    host.appendChild(container);
+    pinnedStage.workspace.appendChild(container);
     const manager = createTerminalManager(container, callbacks, paneIo, managerDeps(nextKey));
     try {
       if (layout === null) {
         await manager.initFresh(cwds[0] ?? null, {
+          attachedPanes: options.attachedPanes,
           canCommit: options.canCommit,
           focus: options.focusOnInit,
         });
       } else {
         await manager.initFromLayout(layout, cwds, {
+          attachedPanes: options.attachedPanes,
           canCommit: options.canCommit,
           focus: options.focusOnInit,
         });
@@ -832,6 +944,8 @@ export function createTabManager(
         return null;
       }
       console.error("Failed to open tab:", err);
+      for (const attached of options.attachedPanes ?? [])
+        if (attached) await persistentTerminal.detach(attached.id).catch(console.warn);
       manager.dispose();
       activeManager()?.notifyError(`Failed to open new tab: ${err}`);
       return null;
@@ -854,6 +968,18 @@ export function createTabManager(
       workspacePath: workspacePath === null ? null : normalizeWorkspacePath(workspacePath),
     };
     tabs.push(entry);
+    try {
+      for (const attached of options.attachedPanes ?? []) {
+        if (attached) await persistentTerminal.ready(attached.id);
+      }
+    } catch (error) {
+      tabs.splice(tabs.indexOf(entry), 1);
+      for (const attached of options.attachedPanes ?? [])
+        if (attached) await persistentTerminal.detach(attached.id).catch(console.warn);
+      manager.dispose();
+      console.error("Could not reconnect terminal output", error);
+      return null;
+    }
     nextKey += 1;
     return entry;
   }
@@ -868,6 +994,7 @@ export function createTabManager(
    * logged and the switch goes ahead exactly as it would without one.
    */
   function observeSwitch(from: number, to: number): () => void {
+    if (pinnedStage.ids().length) return () => undefined;
     let landed: (() => void) | void;
     try {
       landed = deps.onTabSwitch?.(from, to);
@@ -882,6 +1009,15 @@ export function createTabManager(
         console.error("[tab-manager] tab-switch observer failed after the switch:", error);
       }
     };
+  }
+
+  function showTerminalManager(manager: TerminalManager, options?: { focus?: boolean }): void {
+    // Restore the workspace before fitting/focusing a terminal inside it.
+    const hasRegularPane = manager.paneIds().some((id) => !pinnedStage.has(id));
+    pinnedStage.setWorkspaceVisible(hasRegularPane);
+    manager.show(options);
+    const id = manager.activePaneId();
+    if (!hasRegularPane && options?.focus !== false && id !== null) manager.focusPane(id);
   }
 
   /**
@@ -899,8 +1035,8 @@ export function createTabManager(
     const surfaceWasActive = surfaceHasFocus();
     surfaces.deactivate();
     if (index === active) {
-      if (surfaceWasActive) {
-        tabs[index].manager.show();
+      if (surfaceWasActive || pinnedStage.has(keyboardPaneId ?? -1)) {
+        showTerminalManager(tabs[index].manager);
         syncViews();
       }
       return;
@@ -912,7 +1048,7 @@ export function createTabManager(
     activeManager()?.hide();
     active = index;
     unread.delete(tabs[index].key); // opening the tab clears its unread badge
-    tabs[index].manager.show();
+    showTerminalManager(tabs[index].manager);
     syncViews();
     landed?.();
   }
@@ -968,6 +1104,11 @@ export function createTabManager(
     if (!target || !target.manager.paneIds().includes(paneId)) {
       return; // unknown/dead candidate — no tab change, no ack of any pane
     }
+    if (pinnedStage.has(paneId)) {
+      surfaces.deactivate();
+      target.manager.focusPane(paneId);
+      return;
+    }
     // The attention rail is jumping to a terminal PANE — a file surface may
     // be on the stage over either the current tab or the target, same-tab or
     // cross-tab. Mirrors `selectTab`'s own `surfaces.deactivate()` (Task 7):
@@ -986,7 +1127,7 @@ export function createTabManager(
     activeManager()?.hide();
     active = index;
     unread.delete(target.key); // opening the tab clears legacy unread too
-    target.manager.show({ focus: false }); // display + fit only, no focus/ack
+    showTerminalManager(target.manager, { focus: false }); // display + fit only, no focus/ack
     target.manager.focusPane(paneId); // acks ONLY the candidate
     syncViews();
     landed?.();
@@ -1032,6 +1173,8 @@ export function createTabManager(
     return {
       ...deps,
       transfer,
+      inputBlocked: (id: number) =>
+        accountSwitchInputBlocks.has(id) || reviewInputBlocks.has(id) || deps.inputBlocked?.(id) === true,
       identity: (paneId: number) => {
         const override = overrides.get(tabKey);
         // Read from the live entry, never from a value captured here: a tab
@@ -1123,6 +1266,7 @@ export function createTabManager(
     const countBefore = tabs.length;
     entry.manager.dispose();
     tabs.splice(removeAt, 1);
+    pinnedStage.prune();
     overrides.delete(entry.key);
     unread.delete(entry.key);
     taskPromptTargetByTab.delete(entry.key);
@@ -1140,7 +1284,7 @@ export function createTabManager(
     }
     active = activeAfterClose(removeAt, active, countBefore);
     if (closingActive) {
-      tabs[active].manager.show();
+      showTerminalManager(tabs[active].manager);
     }
   }
 
@@ -1149,7 +1293,7 @@ export function createTabManager(
     const container = document.createElement("div");
     container.className = "tab-stage";
     container.style.display = "none";
-    host.appendChild(container);
+    pinnedStage.workspace.appendChild(container);
     const manager = createTerminalManager(container, callbacks, paneIo, managerDeps(nextKey));
     // Pushed BEFORE the adoption runs, not after. Rust flushes everything it
     // buffered during the transfer as part of `commit_transfer`, which happens
@@ -1241,6 +1385,22 @@ export function createTabManager(
       }
     }
     const paneIds = entry.manager.paneIds();
+    if (intent.activePaneIndex !== undefined && paneIds[intent.activePaneIndex] !== undefined)
+      entry.manager.focusPane(paneIds[intent.activePaneIndex]);
+    for (const [index, id] of paneIds.entries()) {
+      const pin = intent.panePins?.[index];
+      if (pin) pinnedStage.pin(id, pin.edge, pin);
+      const attached = intent.attachedPanes?.[index];
+      if (attached) restoredActivity.add(id);
+      if (attached?.metadata.agent && attached.metadata.sessionId) {
+        attachedSessions.set(id, {
+          agent: attached.metadata.agent,
+          sessionId: attached.metadata.sessionId,
+        });
+      }
+      const metadata = intent.recoveryPanes?.[index];
+      if (metadata && !intent.attachedPanes?.[index]) persistentTerminal.remember(id, metadata);
+    }
     const pollDeferred = deferWindowsStartupPoll(paneIds);
     // By key, not by "last": a concurrent materialize may have pushed after
     // this one, and selecting its tab would put the user in a pane they did
@@ -1290,6 +1450,13 @@ export function createTabManager(
     // generation forget — a fresh pane's FIRST agent is not a replacement, so
     // nothing clears what is recorded here.
     paneIds.forEach((id, index) => {
+      const command =
+        intent.attachedPanes?.[index]?.metadata.launchCommand ??
+        intent.recoveryPanes?.[index]?.launchCommand ??
+        intent.paneCommands?.[index];
+      if (command) launchCommandByPane.set(id, command);
+      const notice = intent.paneNotices?.[index];
+      if (notice) entry.manager.handleOutput(id, `\r\n\x1b[33m${notice}\x1b[0m\r\n`);
       const prompt = intent.panePrompts?.[index];
       if (prompt != null) {
         noteTaskPrompt(id, prompt);
@@ -1298,7 +1465,7 @@ export function createTabManager(
     void armLaunch(
       paneIds.map((id, index) => ({
         id,
-        command: intent.paneCommands?.[index] ?? fallback,
+        command: intent.attachedPanes?.[index] ? null : (intent.paneCommands?.[index] ?? fallback),
       })),
     );
     // Usage analytics (spec §4): a launch per pane the CATALOG armed. Panes
@@ -1871,44 +2038,77 @@ export function createTabManager(
    * because `arm` merges per pane id rather than replacing the pending set
    * (session restore arms many panes and must not be clobbered).
    *
-   * Nobody picks an agent here: the drop IS the confirmation, so the choice
-   * comes from what this workspace was last opened with, resolved against a
-   * live probe. The probe is awaited for the same reason the Open board
-   * awaits it — resolving against a not-yet-answered list would silently
-   * spawn a Shell. A failed probe degrades to Shell rather than sinking the
-   * drop.
+   * Account drops supply an exact command. Other drops use the workspace's
+   * last agent, resolved against a live probe. The probe is awaited for the
+   * same reason the Open board awaits it — resolving against a not-yet-answered
+   * list would silently spawn a Shell. A failed probe degrades to Shell rather
+   * than sinking the drop.
    */
-  async function dropAgentPane(targetPaneId: number, edge: Edge): Promise<boolean> {
-    const manager = activeManager();
+  async function dropAgentPane(
+    targetPaneId: number,
+    edge: Edge,
+    launch?: Parameters<TabManager["dropAgentPane"]>[2],
+  ): Promise<boolean> {
+    const manager = ownerOf(targetPaneId)?.manager ?? null;
     if (manager === null) {
       return false;
     }
     const customAgents = settings.value.customAgents;
-    const detected = await pty.detectAgents(probeNames(customAgents)).catch((err: unknown) => {
-      console.warn("detect_agents failed:", err);
-      return [];
-    });
-    const agentId = agentForWorkspace(
-      workspacesData.value.recents,
-      activeWorkspacePath(),
-      agentOptions(detected, customAgents, settings.value.disabledAgents),
-    );
+    if (
+      launch &&
+      (!/^cli [A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(launch.command) || !launch.canCommit())
+    )
+      return false;
+    const detected = launch
+      ? []
+      : await pty.detectAgents(probeNames(customAgents)).catch((err: unknown) => {
+          console.warn("detect_agents failed:", err);
+          return [];
+        });
+    const agentId =
+      launch?.agent ??
+      agentForWorkspace(
+        workspacesData.value.recents,
+        activeWorkspacePath(),
+        agentOptions(detected, customAgents, settings.value.disabledAgents),
+      );
     const finishStartupSpawn = beginWindowsStartupSpawn();
     try {
-      const paneId = await manager.dockNewPaneAt(targetPaneId, edge);
+      const valid = () =>
+        !disposed &&
+        (activeManager() === manager || pinnedStage.has(targetPaneId)) &&
+        (launch?.canCommit() ?? true);
+      if (!valid()) return false;
+      const paneId = await manager.dockNewPaneAt(
+        targetPaneId,
+        edge,
+        launch
+          ? {
+              cwd: launch.cwd,
+              canCommit: valid,
+            }
+          : undefined,
+      );
       if (paneId === null) {
         return false;
       }
+      if (pinnedStage.has(targetPaneId)) {
+        showTab(
+          tabs.findIndex((tab) => tab.manager === manager),
+          true,
+        );
+      }
       const pollDeferred = deferWindowsStartupPoll([paneId]);
-      // The drop states no mode, so the agent's default profile applies — the
-      // same rule the Open board gets through `materialize`. Composed here
-      // because this is the one launch that does not go through it.
-      const launchCommand = agentLaunchCommand(
-        agentId,
-        settings.value.launchProfiles,
-        settings.value.defaultLaunchProfiles,
-        customAgents,
-      );
+      // Explicit account commands stay verbatim; other drops use the default
+      // launch profile, matching the Open board's materialize path.
+      const launchCommand =
+        launch?.command ??
+        agentLaunchCommand(
+          agentId,
+          settings.value.launchProfiles,
+          settings.value.defaultLaunchProfiles,
+          customAgents,
+        );
       if (launchCommand !== null) {
         launchCommandByPane.set(paneId, launchCommand);
       }
@@ -1957,8 +2157,11 @@ export function createTabManager(
       const override = overrides.get(entry.key);
       const panes = entry.manager.paneIds().map((id) => {
         const info = poller.infoFor(id);
+        const terminalRef = persistentTerminal.reference(id);
         return {
-          cwd: info?.cwd ?? null,
+          ...(terminalRef ? { terminalRef } : {}),
+          ...(pinnedStage.placement(id) ? { pin: pinnedStage.placement(id) } : {}),
+          cwd: info?.cwd ?? entry.workspacePath,
           agent: info?.agent ?? null,
           // Known limit, recorded not fixed: a pane detached into another
           // window loses this. The map is per TabManager and the adopting
@@ -1980,6 +2183,13 @@ export function createTabManager(
       return [
         {
           workspacePath: entry.workspacePath,
+          ...(panes.some((pane) => pane.terminalRef)
+            ? {
+                activePaneIndex: entry.manager
+                  .paneIds()
+                  .indexOf(entry.manager.activePaneId() ?? -1),
+              }
+            : {}),
           layout,
           panes,
           name: override?.name ?? null,
@@ -1990,7 +2200,7 @@ export function createTabManager(
   }
 
   function activePaneCwd(): Promise<string | null> {
-    return freshCwd(activeManager()?.activePaneId() ?? null, pty);
+    return freshCwd(inputManager()?.activePaneId() ?? null, pty);
   }
 
   function ownerOf(paneId: number): TabEntry | undefined {
@@ -2017,6 +2227,10 @@ export function createTabManager(
     return raw === null ? null : lastRows(stripAnsiSequences(raw), lines);
   }
 
+  function remoteScreen(paneId: number, lines: number) {
+    return ownerOf(paneId)?.manager.remoteScreen?.(paneId, lines) ?? null;
+  }
+
   /**
    * Whether this window still has that pane, with a PTY that is running.
    *
@@ -2026,6 +2240,33 @@ export function createTabManager(
    */
   function paneAlive(paneId: number): boolean {
     return ownerOf(paneId)?.manager.paneAlive(paneId) ?? false;
+  }
+
+  /** The paired user's Send is explicit input; automatic-prompt gates stay separate. */
+  async function sendRemoteInput(
+    paneId: number,
+    text: string,
+    canSend: () => boolean,
+  ): Promise<{ readonly status: "sent" | "inserted" }> {
+    if (injectingPanes.has(paneId)) throw new Error("This session is receiving input. Try again.");
+    const owner = ownerOf(paneId);
+    if (!owner || !paneAlive(paneId) || !canSend())
+      throw new Error("This session is no longer available.");
+    injectingPanes.add(paneId);
+    try {
+      if (text.length > 0) {
+        const paste = owner.manager.pasteIntoPane(paneId, text);
+        if (paste === null || !(await paste))
+          throw new Error("The text could not reach the terminal.");
+      }
+      if (!canSend() || ownerOf(paneId) !== owner || !paneAlive(paneId))
+        return { status: "inserted" };
+      const submit = owner.manager.submitPane(paneId);
+      if (submit === null || !(await submit)) return { status: "inserted" };
+      return { status: "sent" };
+    } finally {
+      injectingPanes.delete(paneId);
+    }
   }
 
   /**
@@ -2044,6 +2285,64 @@ export function createTabManager(
    * agent has no resume form.
    */
   const restartingPanes = new Set<number>();
+
+  async function switchPaneAccount(
+    paneId: number,
+    account: { readonly id: string; readonly agent: string },
+    canSwitch: () => boolean,
+  ): Promise<boolean> {
+    const owner = ownerOf(paneId);
+    if (!owner || restartingPanes.has(paneId)) return false;
+    const valid = () =>
+      !disposed && ownerOf(paneId) === owner && owner.manager.paneAlive(paneId) && canSwitch();
+    restartingPanes.add(paneId);
+    try {
+      return await switchAccount(paneId, account, {
+        pty: {
+          ptyInfo: (...args) => pty.ptyInfo(...args),
+          ...(pty.killForeground
+            ? {
+                killForeground: (
+                  id: number,
+                  expected?: Parameters<NonNullable<PtyClient["killForeground"]>>[1],
+                ) => pty.killForeground!(id, expected),
+              }
+            : {}),
+          writePty: (id, data) => {
+            activity.noteInput(id);
+            return pty.writePty(id, data);
+          },
+        },
+        platform: environment.platform,
+        valid,
+        prepare: async (command) => (await prepareLaunch({ id: paneId, command }, true)).command,
+        stopped: () => poller.poll(),
+        pauseInput: async () => {
+          accountSwitchInputBlocks.add(paneId);
+          await owner.manager.drainPaneInput(paneId);
+          return () => accountSwitchInputBlocks.delete(paneId);
+        },
+        resetTerminal: () => owner.manager.resetPaneForShell(paneId),
+        launched(command, sessionId, cwd) {
+          launchCommandByPane.set(paneId, command);
+          tracker.noteLaunch(paneId);
+          persistentTerminal.remember(paneId, {
+            agent: account.agent,
+            sessionId,
+            launchCommand: command,
+            cwd,
+            account: account.id,
+          });
+          countAgentLaunch(account.agent);
+          void poller.poll();
+          syncViews();
+        },
+      });
+    } finally {
+      accountSwitchInputBlocks.delete(paneId);
+      restartingPanes.delete(paneId);
+    }
+  }
 
   async function restartPane(paneId: number): Promise<boolean> {
     if (restartingPanes.has(paneId)) return false;
@@ -2112,6 +2411,103 @@ export function createTabManager(
     return tracker.snapshot(paneId);
   }
 
+  function webReviewTargets(clientId: string): ReviewCandidate[] {
+    return tabs.flatMap((tab) =>
+      tab.workspacePath === null
+        ? []
+        : tab.manager.paneIds().flatMap((paneId) => {
+            const info = poller.infoFor(paneId),
+              attention = paneAttention(paneId);
+            const sessionId = info?.agent === "codex" ? info.codexSessionId : info?.agySessionId;
+            if (
+              info?.kind !== "agent" ||
+              (info.agent !== "codex" && info.agent !== "agy") ||
+              !sessionId ||
+              !info.processId ||
+              !attention ||
+              !paneAlive(paneId)
+            )
+              return [];
+            const view = tabViews.value
+              .find((v) => v.key === tab.key)
+              ?.panes?.find((p) => p.paneId === paneId);
+            return [
+              {
+                clientId,
+                paneId,
+                tabKey: tab.key,
+                root: tab.workspacePath!,
+                agent: info.agent,
+                sessionId,
+                processId: info.processId,
+                terminalRef: persistentTerminal.reference(paneId) ?? null,
+                startedAt: view?.startedAt ?? 0,
+                label: `${info.agent === "codex" ? "Codex" : "AGY"}${info.account ? ` · ${info.account}` : ""} · ${sessionId.slice(0, 8)}`,
+                phase: attention.phase,
+                confidence: attention.phaseConfidence,
+                attention: attention.attention,
+                hasRun: attention.hasRun,
+                changedAt: attention.changedAt,
+                revision: attention.revision,
+                inputPending: reviewInput.pending(paneId, attention.phase, attention.phaseConfidence),
+              } satisfies ReviewCandidate,
+            ];
+          }),
+    );
+  }
+
+  async function deliverWebReview(
+    target: ReviewTarget,
+    attemptId: string,
+    clientId: string,
+  ): Promise<ReviewDelivery> {
+    const id = target.paneId,
+      owner = ownerOf(id);
+    if (
+      !owner ||
+      injectingPanes.has(id) ||
+      accountSwitchInputBlocks.has(id) ||
+      restartingPanes.has(id)
+    )
+      return "waiting";
+    return deliverReviewPrompt(target, {
+      current: () => webReviewTargets(clientId).find((c) => c.paneId === id) ?? null,
+      verify: async () => {
+        const [info] = await freshPaneInfo(
+          [id],
+          pty,
+          agentProcessMatchers(settings.value.customAgents),
+        );
+        return (
+          ownerOf(id) === owner &&
+          info?.kind === "agent" &&
+          info.agent === target.agent &&
+          info.processId === target.processId &&
+          (target.agent === "codex" ? info.codexSessionId : info.agySessionId) === target.sessionId
+        );
+      },
+      drain: async () => {
+        await owner.manager.drainPaneInput?.(id);
+      },
+      block: () => {
+        injectingPanes.add(id);
+        reviewInputBlocks.add(id);
+        return () => {
+          injectingPanes.delete(id);
+          reviewInputBlocks.delete(id);
+        };
+      },
+      write: (stage) => webReviewHost.write(attemptId, stage, paneAttention(id)?.revision ?? -1),
+      submitted: () => {
+        reviewInput.input(id, "\r");
+        tracker.noteInput(id);
+        activity.noteInput(id);
+      },
+      staged: () => {
+        reviewInput.input(id, "review draft");
+      },
+    });
+  }
   /**
    * Paste-then-maybe-submit for the Prompt Board. The paste is unconditional
    * (it is exactly a ⌘V, and bracketed paste means even a bare shell inserts
@@ -2261,6 +2657,7 @@ export function createTabManager(
     const countBefore = tabs.length;
     entry.manager.dispose();
     tabs.splice(removeAt, 1);
+    pinnedStage.prune();
     overrides.delete(entry.key);
     unread.delete(entry.key);
     taskPromptTargetByTab.delete(entry.key);
@@ -2306,15 +2703,18 @@ export function createTabManager(
     }
     active = activeAfterClose(removeAt, active, countBefore);
     if (closingActive) {
-      tabs[active].manager.show();
+      showTerminalManager(tabs[active].manager);
     }
     syncViews();
   }
 
   const close = createCloseCoordinator({
     confirmClose: (paneIds) => confirmClose(paneIds, pty),
-    activeManager,
-    activeIndex: () => active,
+    activeManager: inputManager,
+    activeIndex: () =>
+      keyboardPaneId !== null && pinnedStage.has(keyboardPaneId)
+        ? tabs.findIndex((tab) => tab.manager === inputManager())
+        : active,
     tabAt: (index) => tabs[index],
     indexOf: (entry) => tabs.findIndex((tab) => tab.manager === entry.manager),
     disposeTab,
@@ -2364,10 +2764,10 @@ export function createTabManager(
   const poller = createPaneInfoPoller({
     pty,
     targets: pollTargets,
-    activePaneId: () => activeManager()?.activePaneId() ?? null,
+    activePaneId: () => inputManager()?.activePaneId() ?? null,
     agentMatchers: currentAgentMatchers,
     onUpdate(infos) {
-      activeManager()?.updatePaneInfo(infos, home);
+      for (const tab of tabs) tab.manager.updatePaneInfo(infos, home);
       // Reconcile the tracker's explicit process gate before this cycle's
       // state is aggregated. Display labels never decide whether the gate
       // opens: only a classified, named agent can do that.
@@ -2387,8 +2787,24 @@ export function createTabManager(
         if (snap !== null) {
           maybeNotify(info.id, snap);
         }
-        if (agent === "codex") {
-          tracker.noteProcessSession(info.id, info.processId ?? null, info.codexSessionId ?? null);
+        const restored = attachedSessions.get(info.id);
+        const observedId = (agent === "codex" ? info.codexSessionId : info.agySessionId) ?? null;
+        if (
+          restored &&
+          (agent !== restored.agent ||
+            observedId !== null ||
+            (restored.pid !== undefined && restored.pid !== info.processId))
+        ) {
+          attachedSessions.delete(info.id);
+        }
+        const retained = attachedSessions.get(info.id);
+        if (retained && info.processId != null) retained.pid = info.processId;
+        if (agent === "codex" || agent === "agy") {
+          tracker.noteProcessSession(
+            info.id,
+            info.processId ?? null,
+            observedId ?? (retained?.pid !== undefined ? retained.sessionId : null),
+          );
         }
       }
       // Stage 3's freshness: a contract-layer state nobody has refreshed in
@@ -2609,8 +3025,8 @@ export function createTabManager(
     // to close, and closing the terminal tab behind it would be a silent
     // catastrophe.
     "close-pane": () => (surfaceHasFocus() ? void surfaces.close() : void close.closePane()),
-    "focus-next": () => activeManager()?.cycleFocus(1),
-    "focus-prev": () => activeManager()?.cycleFocus(-1),
+    "focus-next": () => cyclePaneFocus(1),
+    "focus-prev": () => cyclePaneFocus(-1),
     "toggle-expand": () => updateSettings({ focusExpand: !settings.value.focusExpand }),
     "new-tab": () => void newTab(),
     "close-tab": () => void close.closeTab(active),
@@ -2619,9 +3035,9 @@ export function createTabManager(
     "zoom-in": () => updateSettings({ fontSize: clampFontSize(settings.value.fontSize + 1) }),
     "zoom-out": () => updateSettings({ fontSize: clampFontSize(settings.value.fontSize - 1) }),
     "zoom-reset": () => updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize }),
-    "toggle-zoom-pane": () => activeManager()?.toggleZoom(),
-    "clear-buffer": () => activeManager()?.clearActive(),
-    "copy-selection": () => activeManager()?.copyActiveSelection(),
+    "toggle-zoom-pane": () => inputManager()?.toggleZoom(),
+    "clear-buffer": () => inputManager()?.clearActive(),
+    "copy-selection": () => inputManager()?.copyActiveSelection(),
     // Only ever reached when the predicate said a selection exists, so this
     // never has to decide between copying and interrupting — the interrupt
     // branch is the KEY not being consumed, so xterm encodes it (spec).
@@ -2629,29 +3045,29 @@ export function createTabManager(
     // writes the clipboard asynchronously, and clearing in its callback could
     // erase a selection the user made in the meantime (spec D4).
     "copy-or-interrupt": () => {
-      const manager = activeManager();
+      const manager = inputManager();
       manager?.copyActiveSelection();
       manager?.clearActiveSelection();
     },
-    paste: () => activeManager()?.pasteIntoActive(),
+    paste: () => inputManager()?.pasteIntoActive(),
     "copy-cwd": () => {
-      const paneId = activeManager()?.activePaneId() ?? null;
+      const paneId = inputManager()?.activePaneId() ?? null;
       if (paneId !== null) {
         copyPaneCwd(paneId);
       }
     },
-    "focus-left": () => activeManager()?.focusDirection("left"),
-    "focus-right": () => activeManager()?.focusDirection("right"),
-    "focus-up": () => activeManager()?.focusDirection("up"),
-    "focus-down": () => activeManager()?.focusDirection("down"),
-    "swap-left": () => activeManager()?.swapDirection("left"),
-    "swap-right": () => activeManager()?.swapDirection("right"),
-    "swap-up": () => activeManager()?.swapDirection("up"),
-    "swap-down": () => activeManager()?.swapDirection("down"),
-    "scroll-page-up": () => activeManager()?.scrollActivePage(-1),
-    "scroll-page-down": () => activeManager()?.scrollActivePage(1),
-    "scroll-to-top": () => activeManager()?.scrollActiveToEdge("top"),
-    "scroll-to-bottom": () => activeManager()?.scrollActiveToEdge("bottom"),
+    "focus-left": () => focusPaneDirection("left"),
+    "focus-right": () => focusPaneDirection("right"),
+    "focus-up": () => focusPaneDirection("up"),
+    "focus-down": () => focusPaneDirection("down"),
+    "swap-left": () => inputManager()?.swapDirection("left"),
+    "swap-right": () => inputManager()?.swapDirection("right"),
+    "swap-up": () => inputManager()?.swapDirection("up"),
+    "swap-down": () => inputManager()?.swapDirection("down"),
+    "scroll-page-up": () => inputManager()?.scrollActivePage(-1),
+    "scroll-page-down": () => inputManager()?.scrollActivePage(1),
+    "scroll-to-top": () => inputManager()?.scrollActiveToEdge("top"),
+    "scroll-to-bottom": () => inputManager()?.scrollActiveToEdge("bottom"),
     "reopen-tab": () => void reopenTab(),
     // Never calls `focusNextAttention` directly — routes the request through
     // the optional app seam so the app can run the overlay preflight (Task
@@ -2691,7 +3107,7 @@ export function createTabManager(
       if (browserSurfaceActive.value) {
         deactivateBrowserSurface(defaultBrowserClient);
         syncViews();
-        activeManager()?.focusActive();
+        inputManager()?.focusActive();
         return;
       }
       // An active file surface steps back first — exactly one surface owns
@@ -2724,7 +3140,7 @@ export function createTabManager(
     // switch to it, or — only if it is already the tab on screen — close).
     // One chord per surface, and the chord always means "show me this".
     //
-    // `focusStage()`, not `activeManager()?.focusActive()`: the column can be
+    // `focusStage()`, not `inputManager()?.focusActive()`: the column can be
     // put away while a document holds the stage (that is what
     // `isChromeScopedAction` restores), and handing focus to the terminal
     // behind it would take the caret out of the editor the user is looking at.
@@ -2765,20 +3181,20 @@ export function createTabManager(
     "toggle-prompts": () => {
       if (promptsOpen.value) {
         promptsOpen.value = false;
-        activeManager()?.focusActive();
+        inputManager()?.focusActive();
         return;
       }
-      if ((activeManager()?.activePaneId() ?? null) === null) {
+      if ((inputManager()?.activePaneId() ?? null) === null) {
         reportChromeMessage("No pane to paste into.");
         return;
       }
       promptsOpen.value = true;
     },
-    find: () => activeManager()?.openSearch(),
+    find: () => inputManager()?.openSearch(),
     // Not exempted in overlayBlocksAction below: both act on the terminal
     // (highlight/jump inside a pane's buffer), same scope as clear-buffer.
-    "find-next": () => activeManager()?.findNext(),
-    "find-previous": () => activeManager()?.findPrevious(),
+    "find-next": () => inputManager()?.findNext(),
+    "find-previous": () => inputManager()?.findPrevious(),
     // Task 6's action; wired here (Task 5 owns this table). `surfaces.save()`
     // is ALREADY a no-op with nothing to save when no file surface is active
     // (`FileSurfaceController.save`, file-surface-controller.ts) — matching
@@ -2834,7 +3250,7 @@ export function createTabManager(
     // terminal grid instead of covering it (DL-19.1). A pane-scoped shortcut
     // behind an open dock still has its pane on screen, so blocking it would
     // be the tier model firing at a surface it was not written for.
-    if (settingsOpen.value) {
+    if (settingsOpen.value || codeViewerRoot.value !== null) {
       ranks.push(TIER_RANK.settings);
     }
     // Mission Control covers the stage the way the Open board does, and a pane
@@ -2846,6 +3262,7 @@ export function createTabManager(
       editorRequest.value !== null ||
       saveDialogOpen.value ||
       agentQuickPickerOpen.value ||
+      folderShellRoot.value !== null ||
       // The consent dialog is the same `.modal-scrim` genre as the three above
       // and therefore the same rank — but it is the only one a user cannot
       // dismiss (DL-29.9 withdraws both exits), which made its absence here
@@ -2883,7 +3300,7 @@ export function createTabManager(
       stageOwner: stageOwner(),
       // `?? false` is the fail-toward-the-PTY rule (spec D5): no manager means
       // no selection means the key is not consumed.
-      hasSelection: activeManager()?.activeHasSelection() ?? false,
+      hasSelection: inputManager()?.activeHasSelection() ?? false,
       // Same direction: a `SurfaceStrip` that does not implement the seam
       // (every fake written before 2026-08-23, and `INERT_SURFACES`) answers
       // "no second view", so the chord is never consumed on its behalf.
@@ -3027,8 +3444,10 @@ export function createTabManager(
    */
   function isChromeTextField(node: unknown): boolean {
     return (
-      (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) &&
-      !node.closest(".pane__term")
+      node instanceof HTMLElement &&
+      (node.closest("[data-native-shortcuts]") !== null ||
+        ((node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) &&
+          !node.closest(".pane__term")))
     );
   }
 
@@ -3047,6 +3466,7 @@ export function createTabManager(
 
   /** The dispatch half, shared by the keymap and the menu. */
   function dispatchAction(action: ShortcutAction): void {
+    if (RETIRED_ACTIONS.has(action)) return;
     const pageIsTop = agentLaunchPageIsTop();
     if (pageIsTop && (action === "new-tab" || action === "close-pane")) {
       agentLaunchPage.close(true);
@@ -3185,15 +3605,21 @@ export function createTabManager(
   }
 
   async function splitActive(dir: Direction): Promise<void> {
-    const manager = activeManager();
+    const manager = inputManager();
     if (manager === null) {
       return;
     }
+    const pinnedTarget = pinnedStage.has(manager.activePaneId() ?? -1);
     const before = new Set(manager.paneIds());
     const finishStartupSpawn = beginWindowsStartupSpawn();
     try {
       await manager.splitActive(dir);
       const spawned = manager.paneIds().filter((id) => !before.has(id));
+      if (pinnedTarget)
+        showTab(
+          tabs.findIndex((tab) => tab.manager === manager),
+          true,
+        );
       deferWindowsStartupPoll(spawned);
     } finally {
       finishStartupSpawn?.();
@@ -3346,9 +3772,10 @@ export function createTabManager(
         // actually rest inside the pane's element — `activePaneId()` alone
         // isn't enough, since a Settings-like overlay can hold DOM focus
         // while a pane stays "active" in the split tree.
-        const el = activeManager()?.paneElement(id);
+        const el = owner?.manager.paneElement(id);
         const domFocused = el != null && el.contains(document.activeElement);
-        const visible = windowFocused && owner === tabs[active] && domFocused;
+        const visible =
+          windowFocused && (owner === tabs[active] || pinnedStage.has(id)) && domFocused;
         if (tracker.noteOutputVisibility(id, visible) !== null) {
           trackerChanged = true;
         }
@@ -3357,7 +3784,10 @@ export function createTabManager(
         // flips, or a tracker change) — every other chunk is a no-op, so this
         // stays off the hot per-chunk path.
         const unreadChanged =
-          owner !== undefined && owner !== tabs[active] && !unread.has(owner.key);
+          owner !== undefined &&
+          owner !== tabs[active] &&
+          !pinnedStage.has(id) &&
+          !unread.has(owner.key);
         if (unreadChanged) {
           unread.add(owner.key);
         }
@@ -3450,14 +3880,28 @@ export function createTabManager(
             activeManager()?.fileDragLeave();
             return;
           }
-          activeManager()?.fileDragOver(x, y);
+          const pin = pinnedStage
+            .slotRects()
+            .find((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+          for (const tab of tabs) tab.manager.fileDragLeave();
+          (pin ? ownerOf(pin.id)?.manager : activeManager())?.fileDragOver(x, y);
         },
         onDrop(x, y, paths) {
           if (boardOpen.value || agentLaunchPage.request.value !== null) {
             activeManager()?.fileDragLeave();
             return;
           }
-          activeManager()?.fileDrop(x, y, paths);
+          const pin = pinnedStage
+            .slotRects()
+            .find((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+          if (pin) {
+            const manager = ownerOf(pin.id)?.manager;
+            manager?.focusPane(pin.id);
+            void manager?.pasteIntoPane(
+              pin.id,
+              shellEscapePaths(paths, getDesktopEnvironment().platform),
+            );
+          } else activeManager()?.fileDrop(x, y, paths);
         },
         onLeave() {
           activeManager()?.fileDragLeave();
@@ -3474,6 +3918,52 @@ export function createTabManager(
 
   return {
     init,
+    noteSessionActivity(id, sessionId, fact) {
+      const info = poller.infoFor(id);
+      const current = tracker.snapshot(id);
+      if (
+        ownerOf(id) === undefined ||
+        info?.processId == null ||
+        explicitAgent(info) !== "codex" ||
+        current?.sessionId !== sessionId
+      )
+        return;
+      const previous = transcriptActivities.get(id);
+      const sameProcess = previous?.sessionId === sessionId && previous.pid === info.processId;
+      if (
+        sameProcess &&
+        (previous.fact.observedAt > fact.observedAt ||
+          (previous.fact.observedAt === fact.observedAt &&
+            previous.fact.kind === fact.kind &&
+            previous.fact.turnId === fact.turnId))
+      )
+        return;
+      transcriptActivities.set(id, { pid: info.processId, sessionId, fact });
+      const restoring = restoredActivity.delete(id);
+      // A historical turn may seed an attached screen, but must not replace a newer live signal.
+      if (
+        !restoring &&
+        !sameProcess &&
+        current.phase !== "unknown" &&
+        fact.observedAt < current.changedAt
+      )
+        return;
+      const snap = tracker.noteContract(id, {
+        source: "transcript",
+        agent: "codex",
+        kind: fact.kind,
+        turnId: fact.turnId,
+        sessionId,
+        observedAt: now(),
+        detail: null,
+        message: null,
+      });
+      if (snap !== null) {
+        // Restored history is display state, not a newly completed task notification.
+        if (!restoring && sameProcess) maybeNotify(id, snap);
+        syncViews();
+      }
+    },
     materialize,
     materializePane,
     openFromPreset,
@@ -3488,8 +3978,11 @@ export function createTabManager(
     focusTaskPrompt,
     launchCommandFor,
     dropAgentPane,
+    pinPane,
+    unpinPane,
+    pinDropRects: () => pinnedStage.dropRects(),
     activeSlotRects() {
-      return activeManager()?.slotRects() ?? [];
+      return visiblePaneRects();
     },
     spaceOrder,
     renameTab,
@@ -3498,14 +3991,34 @@ export function createTabManager(
     captureSession,
     activePaneCwd,
     activePaneId() {
-      return activeManager()?.activePaneId() ?? null;
+      return inputManager()?.activePaneId() ?? null;
     },
     paneAttention,
     acknowledgePane,
     serializePane,
+    remoteScreen,
+    sendRemoteInput,
     paneAlive,
     restartPane,
+    switchPaneAccount,
+    activeHeaderRects: () =>
+      visiblePaneRects().flatMap((slot) => {
+        const bar = ownerOf(slot.id)?.manager.paneElement(slot.id)?.querySelector(".pane__bar");
+        const rect = bar?.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return [];
+        return [
+          {
+            id: slot.id,
+            left: Math.max(rect.left, slot.left),
+            top: Math.max(rect.top, slot.top),
+            right: Math.min(rect.right, slot.right),
+            bottom: Math.min(rect.bottom, slot.bottom),
+          },
+        ];
+      }),
     injectIntoPane,
+    webReviewTargets,
+    deliverWebReview,
     newTab,
     movePaneToNewWindow,
     adoptIntoNewTab,
@@ -3569,6 +4082,7 @@ export function createTabManager(
         tab.manager.dispose();
       }
       tabs.length = 0;
+      pinnedStage.dispose();
       taskPromptTargetByTab.clear();
     },
   };

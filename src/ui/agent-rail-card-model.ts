@@ -39,8 +39,9 @@ export interface RailCardPane extends RailPaneRow {
    * The row's second line (DL-27.28, amended 2026-10-07): the agent label ·
    * the status, where the status is the newest turn or, before one, the state
    * word (`stateWord`), whether or not the task label is the agent label too.
-   * Never empty on a built entry; absent on a hand-made fixture, which the
-   * row then reads as the state word.
+   * A live process with no activity signal yet omits the unknown status; an
+   * unnamed silent row can therefore keep this line empty. Absent on a
+   * hand-made fixture, which the row then reads as the state word.
    */
   readonly secondLine?: string;
 }
@@ -61,6 +62,8 @@ export interface RailWorktreeGroup {
   /** Worktree path; unique within a repository. */
   readonly key: string;
   readonly branch: string;
+  /** False for plain folders and detached HEAD; branch may still hold a fallback label. */
+  readonly hasBranch?: boolean;
   readonly name: string;
   /** Always the worktree root, never a tab's cwd. */
   readonly path: string;
@@ -102,18 +105,23 @@ const STATE_RANK: Readonly<Record<RailState, number>> = {
 };
 
 /**
- * The session's first prompt per agent pane (RAIL3, DL-27.28) — the only
- * "title" Deck reads (`SessionEntry.title`, Claude Code and Codex only),
- * joined on the pane's contract-layer `sessionId`, never on a guessed pairing.
- * Whitespace collapses so a multi-line prompt reads as one line.
+ * Conversation display names, reported by Codex in this terminal or joined
+ * to recorded sessions by exact id. A cwd/recency pairing never supplies a title.
+ * Terminal titles are display text only and never establish session identity.
  */
 export function sessionTitlesFor(
   tabs: readonly TabView[],
   entries: readonly SessionEntry[],
+  terminalTitles: ReadonlyMap<number, string> = new Map(),
 ): ReadonlyMap<number, string> {
   const byId = new Map(entries.map((entry) => [entry.sessionId, entry]));
   const titles = new Map<number, string>();
   for (const pane of tabs.flatMap((tab) => tab.panes ?? NO_PANES)) {
+    const liveTitle = pane.agent === "codex" ? terminalTitles.get(pane.paneId) : undefined;
+    if (liveTitle) {
+      titles.set(pane.paneId, liveTitle);
+      continue;
+    }
     const entry = pane.sessionId ? byId.get(pane.sessionId) : undefined;
     const title = entry?.title?.replace(/\s+/g, " ").trim();
     if (entry !== undefined && entry.agent === pane.agent && title) {
@@ -135,8 +143,9 @@ const STATE_WORD: Readonly<Record<RailState, string>> = {
 /**
  * The state as a word for a row's second line (DL-27.2, amended 2026-10-07),
  * used when the agent has no turn to quote. A contract `detail` replaces the
- * `asked` word, a non-zero exit code names itself, and an idle pane the
- * tracker has seen nothing from (`unknown`) says so rather than `Ready`.
+ * `asked` word and a non-zero exit code names itself. An idle pane the tracker
+ * has seen nothing from (`unknown`) has no word: the process still owns its
+ * session row, and a lack of fresh activity is not a user-facing status.
  */
 export function stateWord(
   pane: Pick<RailPaneRow, "state" | "confidence" | "detail" | "exitCode">,
@@ -148,7 +157,7 @@ export function stateWord(
   if (state === "ended" && typeof exitCode === "number" && exitCode !== 0) {
     return `Exited ${exitCode}`;
   }
-  return state === "idle" && pane.confidence === "unknown" ? "No signal" : STATE_WORD[state];
+  return state === "idle" && pane.confidence === "unknown" ? "" : STATE_WORD[state];
 }
 
 /**
@@ -246,8 +255,18 @@ export function buildCardEntries(
     const word = stateWord(pane);
     const lines =
       task === null
-        ? { taskLabel: said ? agent : sentence, secondLine: `${agent} · ${said ? sentence : word}` }
-        : { taskLabel: task, secondLine: `${said ? agent : sentence} · ${said ? sentence : word}` };
+        ? {
+            taskLabel: said ? agent : sentence,
+            secondLine: said ? `${agent} · ${sentence}` : word === "" ? "" : `${agent} · ${word}`,
+          }
+        : {
+            taskLabel: task,
+            secondLine: said
+              ? `${agent} · ${sentence}`
+              : word === ""
+                ? sentence
+                : `${sentence} · ${word}`,
+          };
     return { ...pane, sentence, label: prefix + sentence, ...lines };
   });
 }

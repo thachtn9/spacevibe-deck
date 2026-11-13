@@ -1,6 +1,200 @@
 # AGENTS.md — SpaceVibe Deck
 
+## Local Linux baseline
+
+This checkout starts from upstream tag `v2.10.0` (`d23991cc9d021322c6669a4e5beca5d5f76804fe`).
+The owner requested Deck's existing experience on Linux first, with customization deferred.
+Work in place, in one agent session; do not create worktrees or Superpowers plan files.
+Linux uses the Ctrl keymap and POSIX process groups; cwd discovery uses `/proc/<pid>/cwd`.
+Rail matching falls back to the opened path's Git scan root when symlinks such as
+`/home/thachtn9/data` resolve to `/data`; tab workspace paths stay as the user opened them.
+The Electron rail nests child projects beneath the nearest displayed parent folder.
+Nesting is presentation only: project identities and session focus/close targets stay separate.
+Plain-folder scans include their resolved alias path so adding a symlink parent after its
+canonical child automatically re-nests the existing row without changing terminal paths.
+`npm run build:linux` builds Electron without regenerating the frozen Tauri menu.
+`npm run electron:package:linux` creates local AppImage/deb artifacts. Linux auto-update is
+unsupported until a dedicated feed exists; upstream's feed only serves macOS/Windows.
+See [the Linux runbook](docs/operations/linux.md) for setup and launch commands.
+The local agent selection is Codex and AGY. Their stable ids remain `codex` / `agy`,
+but discovery and launch use `cli-codex` / `cli-agy`. A one-time Linux startup setting
+disables other built-ins and pins these two; subsequent user settings remain editable.
+Claude's Electron API connection form lives under Settings > Agents > Claude Code. It merges
+the gateway, model and key into Claude's private user settings using the hook installer's
+existing file lock. Never return a saved key to the renderer; draft connection tests do not save.
+Gateway tests use Electron's Chromium network stack so system proxies are honored.
+Git folders show a branch tier above their sessions, including the primary checkout; plain
+folders and a primary detached HEAD omit it. Folder, branch and session indents use one 14px step.
+Linux resolves launcher descendants only while stdin still belongs to that pane's tty;
+AGY's open presence lock supplies its exact session id. Codex's OSC conversation title can
+supply rail display text when a shared daemon owns its session files, never a resume identity.
+Focus Expand stays enabled. On Linux, resize also notifies descendants outside the
+pane shell's session that still read from that pane's tty: `cli-agy` launches through
+`dbus-run-session` with `start_new_session=True`, so the kernel's foreground-only
+SIGWINCH misses AGY. Notify the CLI behind the launcher, not just the session leader.
+Pane fitting drains xterm's pending parser writes before changing geometry, so
+cursor-relative CLI frames are interpreted at the width they were written for.
+Focus Expand fits panes on the split's `transitionend`, avoiding an extra 90ms
+debounce after the animation; ordinary resize events retain the debounce.
+AGY erases its response before a delayed full redraw on resize. Its pane batches
+that output until the complete synchronized repaint, bounded to 250ms/256K characters,
+so the intermediate empty frame is not displayed; normal streaming stays immediate.
+The AGY banner also enables this renderer workaround when process polling only
+sees the detached CLI's Python wrapper.
+The Quota dock and rail read CLI Manager's existing `GET /api/status` at
+`http://cli-manager.localhost:1428/` through Electron-only `cli_manager_quota`.
+Percentages are remaining allowance. Both surfaces share a 30-second poll;
+the dock no longer starts token-history scans or agent allowance collectors.
+The left sidebar splits folder-tree and quota space with independent scrolling. Its Quota
+footer icon persists `railQuotaOpen` separately from the right dock; Session history is right-only.
+The left quota region shows only Codex; the right dock retains both Codex and AGY.
+Left account rows place names beside two slim, labelled remaining-quota bars (5h above, 1w
+below), with percentages always visible. The sidebar has no provider heading or account count.
+Reset labels replace the exhausted window's bar on the same line only at zero
+(short window as hours and minutes, minutes only below one hour; weekly window as local date/time). Missing quota stays unknown, and stale/offline
+readings stay labelled. The detailed right quota table remains available.
+Right-dock quota groups collapse independently and list Codex first. Double-clicking an
+account or dropping it onto a terminal body adds a split; a single click never launches.
+Dropping an account onto a pane header stops its agent and resumes the exact live
+conversation with `cli resume <session-id> --acc <account>` in the same PTY. Require
+the same agent, a proven process-bound session id and a fresh idle shell before writing;
+never fall back to latest. Preserve cwd, tab ownership and pinned placement. Linux GUI
+main also stops tty-bound detached descendants so this works with older terminal services.
+Account handoff discards pane input and drains pending writes before stopping. After the
+shell returns, reset xterm's mouse/focus/paste/alternate-screen modes, clear pending readline
+input and restore POSIX tty settings before resume. Emit the reset through PTY output too
+so the persistent screen cannot restore a killed TUI's mouse capture. Never queue mouse
+reports during handoff to replay into the shell or replacement agent.
+Account switching waits for fresh identity metadata; GUI main isolates new Codex launches
+even when an older service cannot. Existing shared app-server clients can remain unidentifiable;
+never recover their session from a title, cwd or remembered resume command.
+Linux Codex handoff verifies the original PID generation, tty, session and process group in GUI
+main, waits for process exit and kernel writer-lock release, and confirms the replacement's
+session/account before reporting success. Only the TUI's own acquired locks or writable
+interactive rollout establish identity; a descendant shared daemon may own other panes' threads.
+Pane-local logs diagnose current-invocation lock failures only, never a resume identity.
+Do not kill a shared Codex daemon or delete its lock files to unblock an account switch.
+Keep the journal's canonical `cli resume <id> --acc <account>` form, but execute Codex
+resumes through `cli <account> resume <id>` with the invocation-local log override. CLI
+Manager's history-resume branch drops extra flags and does not pin the Codex account;
+its explicit-account launch branch forwards both. GUI main normalizes older service replies too.
+Dropping onto a project or checkout label in the rail opens a separate tab at
+that folder. Launch the exact `cli <id>` command after validating the account
+id; splits inherit the target pane's fresh cwd and retain its session.
+Alt+C opens a bounded fuzzy folder picker rooted at `/home/thachtn9/data`.
+Enter materializes a separate shell-only tab; Escape cancels. Browse reaches
+folders outside the search root. The shared picker signal participates in modal shortcut guards.
+Session history uses CLI Manager's read-only `/api/sessions` through Electron's
+existing `sessions_list` command. The visible filters are All, Codex and AGY.
+Preserve account and machine metadata through IPC; resume with
+`cli resume <id> --acc <account>` in a new single-pane tab at the recorded cwd.
+Remote-client and unavailable-folder entries cannot resume locally. Manager
+entries use supplied titles, not the legacy default-profile transcript scanners.
+
+Persistent snapshots preserve the mouse wire encoding alongside tracking. xterm's serializer
+omits SGR encoding, so never use its output alone for reattachment. The client repairs legacy
+Codex snapshots without restarting the old daemon or changing explicit mouse modes.
+Linux Electron keeps PTYs in a detached, per-userData terminal service. UI close/quit detaches;
+explicit pane/tab close kills. Journal `terminalRef` values combine the daemon epoch and pane id,
+so a restarted daemon cannot reuse an old identity. Boot automatically restores layouts and
+reattaches live screens; after reboot it uses `terminal-recovery.json` for exact session/account
+resume. Never fall back to a different conversation when identity is unavailable.
+Codex activity after reattachment comes from the exact conversation's task lifecycle records;
+screen serialization omits the earlier OSC progress event. Keep lifecycle facts bound to the
+live pane's process and session, and restore historical completion without notification sound.
+Direct hook replies must update the desktop widget's last assistant line as well as rail tails.
+Deck-launched
+Codex commands receive `--no-daemon` and an invocation-local `log_dir` so their open rollout can establish identity
+without guessing among a shared app-server's sessions; bound those logs. AGY identity remains its
+open presence lock. Test persistence with scratch userData and clean up only test-owned processes.
+
+Changes & commits and Files are retired from the right dock by owner request. The dock
+shows Quota and Session history; saved explorer selections resolve to Quota. Do not restore
+file/review entry points or background Git review scans without an explicit request.
+The owner-requested View code surface opens in a separate, maximized Electron window.
+It reuses the guarded file controller and lazy Monaco, with a tree, file tabs, bounded fuzzy
+file lookup and Find / Go to line. It never creates a terminal or enables file writes.
+Viewer windows reuse the canonical folder identity, have a restricted preload and stay outside
+the terminal coordinator, journal and close census. In-workspace terminal file links focus
+the matching viewer and reveal the exact file/line; other paths retain external routing.
+The header's Text Editor opens a separate Electron-only Monaco window for editable UTF-8
+files and local notes. It owns no PTYs or terminal journal. Drafts persist atomically with
+mode 0600 under userData/text-editor/workspace.json; unreadable snapshots stay intact.
+File saves compare the original content fingerprint before writing. App quit first asks the
+editor to flush drafts through its IPC close guard, then resumes the existing terminal quit flow.
+View code opens on another monitor when available. Linux Wayland uses a separate XWayland
+viewer helper because native Wayland disallows window positioning. It selects the other
+display from the launch pointer, while a bounded pipe delegates reads, Git and preferences
+to the owning GUI. The helper owns no terminal or journal and exits when its parent pipe ends.
+Keep Deck's own display backend unchanged; do not switch the primary monitor for placement.
+View code's Source control tab reuses Git review channels for working diffs, recent history
+and commits not reachable from a selected target branch. It distinguishes publication to
+the checkout's upstream from target ancestry; squash/rebase is not proof of PR merge state.
+Git review runs only while that tab is mounted; remote refs update only through explicit Fetch.
+Each repository's X hides it from Source control, preserving its files and stopping its reads.
+Hidden repository paths persist per opened root in workspaces.json; Show hidden folders restores them.
+Prompts and Browser are also retired from menus, shortcut settings and toolbars. The rail
+create row exposes Folder only: picking a directory opens a shell-only tab there immediately,
+then remembers it. Folder headers and checkout menus offer Open in VS Code and Open folder;
+Linux uses an executable code command with argv and Electron shell.openPath respectively.
+
+Browser Review runs in the unpacked Chrome Manifest V3 extension under extensions/deck-review.
+The folder menu's Browser Extension window only pairs or revokes that extension; Deck no longer
+opens the project web page. A dedicated authenticated bridge binds 127.0.0.1:43129 and is separate
+from Deck Remote. Pairing codes expire, credentials stay private, and extension requests cannot
+read arbitrary files or write arbitrary terminal text. Drafts persist in Chrome; durable batch IDs
+make retries idempotent in Deck. Queue targets retain exact conversation/process/pane references,
+confirmed idle and composer guards. Uncertain or partially pasted requests never auto-replay.
+Capture URL, viewport, DOM evidence and screenshots together; React/Angular hints are optional
+and untrusted. Deck Review Chrome Extension follows the Obsidian Dark design language with segmented pill
+mode toolbars, card-based annotation editors, monospace selector chips, live agent idle/working badges,
+and glassmorphic precision overlay inspection. Rebuild the shared collector with node scripts/build-review-extension.mjs after
+changing electron/web-review/inject.ts. Test browser and Electron with scratch profiles only.
+
+Pinned terminals belong to their original tab but render in a window-level split around the
+selected workspace. Only dragging a rail session onto a pane or workspace edge creates a pin; account
+drops onto terminal bodies and splits create ordinary panes. Header account drops preserve
+the existing pin. The pane header only offers unpin for existing pins.
+Rail drops split the hovered pin or workspace at the chosen edge, with a matching preview;
+dragging an existing pin from the rail repositions it without duplicating it.
+Drag a pinned pane by its header to dock beside another pin or the workspace; Ctrl-drop on
+Linux swaps their positions. Reordering preserves pin state and the original terminal identity.
+Switching folders leaves pins visible; input and pane shortcuts follow the focused pane.
+Selecting a folder whose tab contains only pinned terminals hides the ordinary workspace,
+so pins fill the stage. Returning to another folder restores its still-running terminals.
+Unpin returns to the original tab. Closing that tab explicitly closes its pins through the
+existing close guard. Journal pane placements restore nested split paths as well as legacy
+pin order, edge and split ratio without
+changing persistent PTY references. Never respawn or transfer a PTY just to pin it.
+
 > **Boundary:** standalone desktop app; no shared DB or API with the SpaceVibe web repos.
+> Deck Remote has a Safari web client and an optional native iOS client of this Electron
+> host, with a disabled-by-default gateway. Linux-only owners use Copy web link and Safari's
+> Add to Home Screen; no separate web server is required.
+> On Linux, Remote uses an independent workspace and a dedicated persistent terminal service
+> under `userData/remote-workspace`; it never attaches to desktop PTYs or creates desktop tabs.
+> Session IDs and epoch-qualified PTY references persist in its private `workspace.json`.
+> Browser close releases input only; explicit remote session close kills only that remote PTY.
+> GUI restart reattaches exact live remote references without spawning replacements; dead
+> references stay ended. Browser-local selection, folders and split preferences stay separate
+> from desktop state. Other Electron platforms retain the renderer-backed compatibility path.
+> Keep timestamped mutation reservations durable before side effects; uncertain requests
+> after a restart must not replay. Main owns pairing keys; native iOS uses Keychain and the
+> web client's Remember this device uses browser local storage. Web links use a fragment
+> removed before connection; allow only same-origin browser API calls, never broad CORS.
+> See [Deck Remote internals](docs/internals/deck-remote.md). Native builds need Xcode on macOS.
+> Remote web uses one compact header and the folder tree for session navigation, without
+> session tabs or pane session pickers. Touch icon buttons are 34px; native input text is 16px.
+> The composer stays in flex flow within the visualViewport height so Safari can reveal it
+> above the keyboard. Quota, follow output and connection controls live in the header menu;
+> web icons use static regular Phosphor paths without a client component runtime.
+> The web workspace uses packaged xterm distributions and authenticated ANSI streams, with a
+> private per-connection sequence ledger reserved before raw input. Its service answers
+> protocol queries; browser keyboard/resize never changes a desktop PTY on Linux. Input leases
+> arbitrate between browsers only. Preserve mouse encoding and NFC graphemes in snapshots.
+> Linux desktop agent activity uses a separate transparent XWayland helper, fed by the
+> existing renderer activity snapshots. Keep it outside the coordinator/PTY/journal census;
+> source ownership is rechecked on activation, and closing Deck ends the helper via stdin.
 > Do not edit sibling repos from this session. Workspace map: [`../AGENTS.md`](../AGENTS.md).
 
 Deck is a terminal for running many agent CLIs side by side. `main` carries **two hosts**: the
@@ -205,3 +399,48 @@ index is [docs/README.md](docs/README.md).
   updates it there by absolute path.
 - `docs/DESIGN-LANGUAGE.md` stays at its path and keeps its numbering: a test reads it, and
   code comments cite its rules. `CHANGELOG.md` is read by the release workflow.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **spacevibe-deck** (26738 symbols, 78940 relationships, 854 execution flows).
+
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+
+## Always Do
+
+- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
+
+## Resources
+
+| Resource | Use for |
+| --- | --- |
+| `gitnexus://repo/spacevibe-deck/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/spacevibe-deck/clusters` | All functional areas |
+| `gitnexus://repo/spacevibe-deck/processes` | All execution flows |
+| `gitnexus://repo/spacevibe-deck/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

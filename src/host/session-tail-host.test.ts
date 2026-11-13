@@ -8,6 +8,17 @@ afterEach(() => vi.restoreAllMocks());
 const REQUEST: ResumeRequest = { agent: "claude", cwd: "/w", lastSeenAt: 1 };
 
 describe("session-tail-host", () => {
+  it("validates optional lifecycle facts independently of an assistant message", async () => {
+    const activity = { kind: "working", turnId: "turn-one", observedAt: 10 };
+    vi.spyOn(bridge, "invoke").mockResolvedValue([
+      { id: "one", tail: "Still working", activity },
+      { id: "two", tail: "Known reply", activity: { ...activity, observedAt: "invalid" } },
+    ]);
+    const answers = await sessionTails([REQUEST, REQUEST]);
+    expect(answers[0]?.activity).toEqual(activity);
+    expect(answers[1]?.activity).toBeUndefined();
+    expect(answers[1]?.tail).toBe("Known reply");
+  });
   it("sends the requests under a flat key (R6)", async () => {
     const invoke = vi.spyOn(bridge, "invoke").mockResolvedValue([]);
     await sessionTails([REQUEST]);
@@ -19,7 +30,7 @@ describe("session-tail-host", () => {
       { id: "sess-1", tail: "what it said", model: null },
     ]);
     await expect(sessionTails([REQUEST])).resolves.toEqual([
-      { id: "sess-1", tail: "what it said", model: null },
+      { id: "sess-1", tail: "what it said", model: null, task: null },
     ]);
   });
 
@@ -31,7 +42,7 @@ describe("session-tail-host", () => {
     // sentence it should have dropped.
     vi.spyOn(bridge, "invoke").mockResolvedValue([{ id: "sess-1", tail: null, model: null }]);
     await expect(sessionTails([REQUEST])).resolves.toEqual([
-      { id: "sess-1", tail: null, model: null },
+      { id: "sess-1", tail: null, model: null, task: null },
     ]);
   });
 
@@ -48,12 +59,12 @@ describe("session-tail-host", () => {
     ]);
     const six = [REQUEST, REQUEST, REQUEST, REQUEST, REQUEST, REQUEST];
     await expect(sessionTails(six)).resolves.toEqual([
-      { id: "sess-1", tail: "kept", model: null },
+      { id: "sess-1", tail: "kept", model: null, task: null },
       null,
       null,
       null,
       null,
-      { id: "sess-2", tail: null, model: null },
+      { id: "sess-2", tail: null, model: null, task: null },
     ]);
   });
 
@@ -63,7 +74,7 @@ describe("session-tail-host", () => {
     // a short reply pads with nulls, a long one has its surplus dropped.
     vi.spyOn(bridge, "invoke").mockResolvedValue([{ id: "sess-1", tail: "one" }]);
     await expect(sessionTails([REQUEST, REQUEST, REQUEST])).resolves.toEqual([
-      { id: "sess-1", tail: "one", model: null },
+      { id: "sess-1", tail: "one", model: null, task: null },
       null,
       null,
     ]);
@@ -75,7 +86,7 @@ describe("session-tail-host", () => {
       { id: "sess-2", tail: "two" },
     ]);
     await expect(sessionTails([REQUEST])).resolves.toEqual([
-      { id: "sess-1", tail: "one", model: null },
+      { id: "sess-1", tail: "one", model: null, task: null },
     ]);
   });
 
@@ -87,6 +98,25 @@ describe("session-tail-host", () => {
   it("keeps the answer when only the model is malformed", async () => {
     vi.spyOn(bridge, "invoke").mockResolvedValue([{ id: "abc", tail: "hello", model: 7 }]);
     const answers = await sessionTails([REQUEST]);
-    expect(answers[0]).toEqual({ id: "abc", tail: "hello", model: null });
+    expect(answers[0]).toEqual({ id: "abc", tail: "hello", model: null, task: null });
+  });
+
+  it("carries the newest user task independently from the assistant tail", async () => {
+    vi.spyOn(bridge, "invoke").mockResolvedValue([
+      { id: "sess-1", tail: "still working", model: "gpt", task: "Fix the new issue" },
+    ]);
+    await expect(sessionTails([REQUEST])).resolves.toEqual([
+      { id: "sess-1", tail: "still working", model: "gpt", task: "Fix the new issue" },
+    ]);
+  });
+
+  it("carries the assistant's last line without accepting malformed optional values", async () => {
+    vi.spyOn(bridge, "invoke").mockResolvedValue([
+      { id: "one", tail: "First line. Last line.", lastLine: "Last line." },
+      { id: "two", tail: "Known tail", lastLine: 42 },
+    ]);
+    const answers = await sessionTails([REQUEST, REQUEST]);
+    expect(answers[0]?.lastLine).toBe("Last line.");
+    expect(answers[1]?.lastLine).toBeUndefined();
   });
 });

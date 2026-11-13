@@ -90,11 +90,35 @@ describe("createTauriPtyClient Agent Board Stop", () => {
 
     await pty.killForeground(7);
 
-    expect(invoke).toHaveBeenCalledWith("pty_kill_foreground", { id: 7 });
+    expect(invoke).toHaveBeenCalledWith("pty_kill_foreground", {
+      id: 7,
+      processId: undefined,
+      sessionId: undefined,
+      accountId: undefined,
+    });
+  });
+  it("forwards the exact account-handoff guards to the host", async () => {
+    const invoke = vi.fn(async () => undefined);
+    vi.stubGlobal("__deckHost", { invoke, listen: vi.fn() });
+    const pty = createTauriPtyClient();
+    const expected = { processId: 123, sessionId: "exact-session", accountId: "codex2" };
+    await pty.killForeground!(7, expected);
+    expect(invoke).toHaveBeenCalledWith("pty_kill_foreground", { id: 7, ...expected });
   });
 });
 
 describe("pty-info Codex identity boundary", () => {
+  it("accepts AGY process identity only for an AGY pane and a valid session id", async () => {
+    const sessionId = "01900000-0000-7000-8000-000000000001";
+    const rows = [
+      { id: 1, agent: "agy", agySessionId: sessionId },
+      { id: 2, agent: "codex", agySessionId: sessionId },
+      { id: 3, agent: "agy", agySessionId: "../wrong" },
+    ];
+    vi.stubGlobal("__deckHost", { invoke: vi.fn(async () => rows), listen: vi.fn() });
+    const infos = await createTauriPtyClient().ptyInfo([1, 2, 3]);
+    expect(infos.map((info) => info.agySessionId)).toEqual([sessionId, null, null]);
+  });
   it("degrades identity to null when the client was created without Electron availability", async () => {
     vi.stubGlobal("__deckHost", undefined);
     const pty = createTauriPtyClient();

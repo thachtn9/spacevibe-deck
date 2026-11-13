@@ -37,6 +37,8 @@ export interface DockPanelProps {
    * tests mount it directly to photograph a column, not to watch it arrive.
    */
   readonly entered?: boolean;
+  /** The app toolbar already contains the panel controls. */
+  readonly externalControls?: boolean;
   /** Tabs this host can show — already filtered for host support. */
   readonly tabs: readonly DockTabDescriptor[];
   readonly activeTab: DockTab;
@@ -119,7 +121,7 @@ export function DockPanel(props: DockPanelProps) {
       // pointer IS the clock, and an eased 280ms exit reads as the app lagging
       // behind the hand. The navigation sidebar hides instantly mid-drag, and
       // this is how the two match.
-      class={`dock-panel ${(props.entered ?? true) ? "is-open" : ""} ${
+      class={`dock-panel ${props.externalControls ? "dock-panel--external-controls" : ""} ${(props.entered ?? true) ? "is-open" : ""} ${
         dockWidthLive.value === null ? "" : "is-dragging"
       }`}
       aria-label="Side panel"
@@ -153,14 +155,16 @@ export function DockPanel(props: DockPanelProps) {
           Through `onClose` rather than a settings write, for the reason the
           drag-past-the-floor gesture goes there: `App` routes it into the
           `toggle-dock` action, which owns the focus guard. */}
-      <div class="dock-panel__header">
-        <DockTabs items={props.tabs} active={props.activeTab} onSelect={props.onSelectTab} />
-        {/* DL-14.2, 2026-08-19: the header's controls draw at
+      {!props.externalControls && (
+        <div class="dock-panel__header">
+          <DockTabs items={props.tabs} active={props.activeTab} onSelect={props.onSelectTab} />
+          {/* DL-14.2, 2026-08-19: the header's controls draw at
             `FEATURE_ICON`, one rung up from chrome. The stage-strip mount of
             this same component keeps `CHROME_ICON`, where it stands beside
             the toolbar's own 13px glyphs. */}
-        <DockToggle open size={FEATURE_ICON} onToggle={props.onClose} />
-      </div>
+          <DockToggle open size={FEATURE_ICON} onToggle={props.onClose} />
+        </div>
+      )}
       <div class="dock-panel__body">{props.children}</div>
     </aside>
   );

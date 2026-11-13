@@ -110,6 +110,42 @@ function railInput(over: Partial<AgentRailInput> = {}): AgentRailInput {
   };
 }
 
+describe("symlink workspace visibility", () => {
+  it("keeps both parent and child sessions visible when the child opens through a symlink", () => {
+    const parent = "/home/user/data/SOURCE";
+    const child = parent + "/api";
+    const scan = repo("/data/SOURCE/api/.git", [{ path: "/data/SOURCE/api" }]);
+    const view = buildAgentRail(
+      railInput({
+        tabs: [tab(1, parent, { panes: [pane(11)] }), tab(2, child, { panes: [pane(21)] })],
+        activeIndex: 1,
+        scans: new Map([
+          [parent, { kind: "plain", reason: "not a repository" }],
+          [child, scan],
+        ]),
+        workspaceHistoryPaths: [child, parent],
+      }),
+    );
+    expect(view.stream.map((group) => group.project)).toEqual(["SOURCE", "api"]);
+    expect(streamRows(view).map((row) => row.index)).toEqual([0, 1]);
+    expect(view.stream[1].worktrees[0].panes.map((row) => row.paneId)).toEqual([21]);
+  });
+  it("does not duplicate a live symlink workspace as an empty remembered project", () => {
+    const opened = "/home/user/data/project";
+    const scan = repo("/data/project/.git", [{ path: "/data/project" }]);
+    const view = buildAgentRail(
+      railInput({
+        tabs: [tab(1, opened, { panes: [pane(11)] })],
+        scans: new Map([[opened, scan]]),
+        workspaceHistoryPaths: [opened],
+      }),
+    );
+    expect(view.stream).toHaveLength(1);
+    expect(view.stream[0].tabIndexes).toEqual([0]);
+    expect(view.stream[0].historyPaths).toEqual([opened]);
+  });
+});
+
 describe("formatShortAge", () => {
   it("returns nothing when the tracker has never seen a change", () => {
     // Not "0m": a zero would claim something happened this second.
@@ -1257,6 +1293,7 @@ describe("buildAgentRail remembered projects (2026-08-20)", () => {
           {
             key: "/w/deck",
             branch: "main",
+            hasBranch: true,
             name: "deck",
             path: "/w/deck",
             repositoryPath: "/w/deck",
@@ -1353,6 +1390,7 @@ describe("buildAgentRail remembered projects (2026-08-20)", () => {
           {
             key: "/home/me/scratch",
             branch: "scratch",
+            hasBranch: false,
             name: "scratch",
             path: "/home/me/scratch",
             repositoryPath: "/home/me/scratch",

@@ -106,7 +106,7 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function runnerFor(root: string): GitRunner {
+export function runnerFor(root: string): GitRunner {
   const env = cleanEnv();
   return (args, input) =>
     new Promise((resolve) => {

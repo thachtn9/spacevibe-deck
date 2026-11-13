@@ -37,11 +37,15 @@ vi.mock("@xterm/xterm", () => ({
     loadAddon(addon: { activate?(terminal: unknown): void }) {
       addon.activate?.(this);
     }
+    attachCustomKeyEventHandler() {}
     attachCustomWheelEventHandler() {}
     registerLinkProvider() {
       return { dispose() {} };
     }
     onBell() {
+      return { dispose() {} };
+    }
+    onTitleChange() {
       return { dispose() {} };
     }
     onKey(callback: (event: { key: string }) => void) {
@@ -117,6 +121,8 @@ vi.mock("../lib/osc-notification", () => ({
 }));
 vi.mock("./terminal-clipboard", () => ({
   copyTerminalSelection: vi.fn(),
+  copyOsc52: vi.fn(() => true),
+  installTerminalMouseClipboard: vi.fn(() => vi.fn()),
   pasteIntoTerminal: vi.fn(),
 }));
 vi.mock("../lib/platform", () => ({

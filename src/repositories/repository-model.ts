@@ -144,6 +144,18 @@ export function worktreeForPath(paths: readonly string[], workspacePath: string)
   return best;
 }
 
+/** Git resolves symlinks; workspace paths retain the folder the user opened. */
+export function worktreeForWorkspace(
+  paths: readonly string[],
+  workspacePath: string,
+  scans: ReadonlyMap<string, RepositoryScan>,
+): string | null {
+  const direct = worktreeForPath(paths, workspacePath);
+  if (direct !== null) return direct;
+  const scan = scans.get(workspacePath);
+  return scan?.kind === "repository" ? worktreeForPath(paths, scan.root) : null;
+}
+
 /**
  * Whether a live group already stands for a workspace-history path, so the
  * rail must not print that path as a remembered cluster of its own.
@@ -162,7 +174,7 @@ export function groupCoversHistoryPath(
   scans: ReadonlyMap<string, RepositoryScan>,
 ): boolean {
   const worktreePaths = group.worktrees.map((worktree) => worktree.path).filter((p) => p !== "");
-  const owner = worktreeForPath(worktreePaths, path);
+  const owner = worktreeForWorkspace(worktreePaths, path, scans);
   if (owner === null) {
     return false;
   }
@@ -187,10 +199,11 @@ export function groupCoversHistoryPath(
 function resumableWorktreePaths(
   archivedPaths: ReadonlySet<string>,
   worktreePaths: readonly string[],
+  scans: ReadonlyMap<string, RepositoryScan>,
 ): ReadonlySet<string> {
   return new Set(
     [...archivedPaths]
-      .map((path) => worktreeForPath(worktreePaths, path))
+      .map((path) => worktreeForWorkspace(worktreePaths, path, scans))
       .filter((path): path is string => path !== null),
   );
 }
@@ -203,12 +216,13 @@ function resumableWorktreePaths(
 export function filterRailToWorkspaceHistory(
   groups: readonly RepositoryGroup[],
   workspaceHistoryPaths: readonly string[],
+  scans: ReadonlyMap<string, RepositoryScan> = new Map(),
 ): readonly RepositoryGroup[] {
   return groups.flatMap((group) => {
     const worktreePaths = group.worktrees.map((worktree) => worktree.path);
     const historicalWorktrees = new Set(
       workspaceHistoryPaths
-        .map((path) => worktreeForPath(worktreePaths, path))
+        .map((path) => worktreeForWorkspace(worktreePaths, path, scans))
         .filter((path): path is string => path !== null),
     );
     const worktrees = group.worktrees.filter(
@@ -278,7 +292,11 @@ export function buildRail(input: RailInput): readonly RepositoryGroup[] {
       // landed yet. One synthetic worktree row so the tab still has a home —
       // this is the flat list Deck shows today, wearing the rail's clothes.
       const path = groupTabs[0]?.workspacePath ?? "";
-      const resumable = resumableWorktreePaths(input.archivedPaths, path === "" ? [] : [path]);
+      const resumable = resumableWorktreePaths(
+        input.archivedPaths,
+        path === "" ? [] : [path],
+        input.scans,
+      );
       return {
         key,
         kind: "plain" as const,
@@ -308,7 +326,7 @@ export function buildRail(input: RailInput): readonly RepositoryGroup[] {
     // can run and it is not a row.
     const entries = scan.worktrees.filter((entry) => !entry.bare);
     const paths = entries.map((entry) => entry.path);
-    const resumable = resumableWorktreePaths(input.archivedPaths, paths);
+    const resumable = resumableWorktreePaths(input.archivedPaths, paths, input.scans);
     // One longest-prefix resolution per TAB, bucketed — not one per
     // (worktree x tab), which re-scanned every worktree path for each pair.
     const tabsByWorktree = new Map<string, typeof groupTabs>();
@@ -316,7 +334,7 @@ export function buildRail(input: RailInput): readonly RepositoryGroup[] {
       if (tab.workspacePath === null) {
         continue;
       }
-      const owner = worktreeForPath(paths, tab.workspacePath);
+      const owner = worktreeForWorkspace(paths, tab.workspacePath, input.scans);
       if (owner === null) {
         continue;
       }

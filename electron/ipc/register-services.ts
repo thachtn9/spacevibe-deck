@@ -5,7 +5,7 @@
  * Shortcuts row sends while recording a chord.
  */
 import path from "node:path";
-import { app, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, net, type IpcMainInvokeEvent } from "electron";
 import { CHANNELS } from "./channels";
 import { discoverAgents, dirsExist } from "../agents";
 import { gitBranch } from "../git";
@@ -16,7 +16,7 @@ import { readStarState, starRepository } from "../github-star";
 import { resolveResume, validateResumeRequests } from "../resume/resolve";
 import { resolveSessionTails } from "../resume/session-tail";
 import { createClaudeRegistry } from "../agent-registry/claude-registry";
-import { listSessions } from "../sessions/list";
+import { createManagerSessionsService } from "../sessions/cli-manager";
 import { resolvePaths, openEditor } from "../links";
 import { listExternalApps, openInApp } from "../external-apps";
 import { workspaceForPath } from "../fs/workspace-for-path";
@@ -25,6 +25,8 @@ import { readImageAsDataUrl, scanWorkspaceFavicon } from "../images";
 import { createUsageService } from "../usage/service";
 import { USAGE_CACHE_FILE } from "../usage/model";
 import { createAgentLimitsService } from "../agent-limits/service";
+import { createCliManagerQuotaService } from "../usage/cli-manager-quota";
+import { createClaudeApiService } from "../claude-api";
 
 export interface RegisterServicesDeps {
   readonly labelOf: (event: IpcMainInvokeEvent) => string;
@@ -32,6 +34,20 @@ export interface RegisterServicesDeps {
 }
 
 export function registerServices(deps: RegisterServicesDeps): void {
+  // Chromium honors system proxies; Node's global fetch bypasses them by default.
+  const claudeApi = createClaudeApiService({
+    fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+  });
+  ipcMain.handle(CHANNELS.claudeApiLoad, () => claudeApi.load());
+  ipcMain.handle(CHANNELS.claudeApiSave, (_event, { baseUrl, model, apiKey }) =>
+    claudeApi.save({ baseUrl, model, apiKey }),
+  );
+  ipcMain.handle(CHANNELS.claudeApiTest, (_event, { baseUrl, model, apiKey }) =>
+    claudeApi.test({ baseUrl, model, apiKey }),
+  );
+  const quota = createCliManagerQuotaService();
+  ipcMain.handle(CHANNELS.cliManagerQuota, () => quota.snapshot());
+  app.once("will-quit", () => quota.close());
   const limits = createAgentLimitsService({
     appData: app.getPath("appData"),
     executable: process.execPath,
@@ -86,7 +102,9 @@ export function registerServices(deps: RegisterServicesDeps): void {
         ? "macos"
         : process.platform === "win32"
           ? "windows"
-          : "unsupported",
+          : process.platform === "linux"
+            ? "linux"
+            : "unsupported",
     homeDir: app.getPath("home"),
   }));
   ipcMain.handle(CHANNELS.resolvePaths, (_event, { cwd, paths }) => resolvePaths(cwd, paths));
@@ -131,8 +149,10 @@ export function registerServices(deps: RegisterServicesDeps): void {
       throw new Error("the usage scan failed", { cause: error });
     }
   });
+  const managerSessions = createManagerSessionsService();
+  app.once("will-quit", () => managerSessions.close());
   ipcMain.handle(CHANNELS.sessionsList, (_event, { limit }) =>
-    listSessions(app.getPath("home"), typeof limit === "number" ? limit : undefined),
+    managerSessions.list(typeof limit === "number" ? limit : undefined),
   );
   ipcMain.handle(CHANNELS.suspendMenuAccelerators, (event, { suspended }) => {
     deps.setRecording(event.sender.id, suspended === true);

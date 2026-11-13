@@ -65,4 +65,21 @@ describe("addFolderToRail (DL-27.14, amended 2026-10-08)", () => {
 
     expect(recordWorkspaceOpen).toHaveBeenCalledExactlyOnceWith("/w/new");
   });
+  it("opens the selected folder before remembering it", async () => {
+    open.mockResolvedValue("/w/new");
+    invoke.mockResolvedValue([true]);
+    const launch = vi.fn(async () => {
+      expect(recordWorkspaceOpen).not.toHaveBeenCalled();
+      return true;
+    });
+    await expect(addFolderToRail(launch)).resolves.toBeNull();
+    expect(launch).toHaveBeenCalledExactlyOnceWith("/w/new");
+    expect(recordWorkspaceOpen).toHaveBeenCalledExactlyOnceWith("/w/new");
+  });
+  it("reports launch failure without adding an unopened folder", async () => {
+    open.mockResolvedValue("/w/new");
+    invoke.mockResolvedValue([true]);
+    await expect(addFolderToRail(async () => false)).resolves.toContain("Couldn't open a terminal");
+    expect(recordWorkspaceOpen).not.toHaveBeenCalled();
+  });
 });

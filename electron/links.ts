@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { hasRejectedRoot } from "./shell-integration";
 import * as macos from "./platform/macos";
+import * as linux from "./platform/linux";
 
 /** Upper bound on one hover's resolve batch. The renderer already caps its
  * candidates per line; this keeps a hostile or garbled line cheap. */
@@ -228,7 +229,7 @@ export function openEditor(request: OpenEditorRequest): Promise<void> {
     throw new Error("Opening an editor is unavailable on this platform.");
   }
   const command = posixEditorCommand(validated);
-  const launch = macos.shellLaunch();
+  const launch = (process.platform === "linux" ? linux : macos).shellLaunch();
   return new Promise((resolve, reject) => {
     const child = execFile(
       launch.executable,

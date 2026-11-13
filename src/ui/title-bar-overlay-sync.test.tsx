@@ -46,7 +46,12 @@ function installElectronHost(): void {
 function usePlatform(platform: DesktopPlatform): void {
   initializeDesktopEnvironment({
     platform,
-    homeDir: { macos: "/Users/deck", windows: "C:\\Users\\Deck", unsupported: "" }[platform],
+    homeDir: {
+      macos: "/Users/deck",
+      windows: "C:\\Users\\Deck",
+      linux: "/home/deck",
+      unsupported: "",
+    }[platform],
   });
 }
 
@@ -146,6 +151,19 @@ describe("useTitleBarOverlaySync on Windows under Electron", () => {
     expect(overlayCalls()).toEqual([
       { color: "#0a0a0a", symbolColor: "#e7e7e7" },
       { color: "#1b1b1b", symbolColor: "#e7e7e7" },
+    ]);
+  });
+});
+
+describe("useTitleBarOverlaySync on Linux under Electron", () => {
+  it("updates native caption colours with the theme", () => {
+    usePlatform("linux");
+    installElectronHost();
+    mount(DARK);
+    mount(LIGHT);
+    expect(overlayCalls()).toEqual([
+      { color: "#0a0a0a", symbolColor: "#e7e7e7" },
+      { color: "#f5f6f8", symbolColor: "#272727" },
     ]);
   });
 });

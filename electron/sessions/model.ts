@@ -5,9 +5,9 @@
  * see (it checks argument keys, not reply shapes).
  */
 
-export type SessionAgent = "claude" | "codex";
+export type SessionAgent = "claude" | "codex" | "agy";
 
-export const SESSION_AGENTS: readonly SessionAgent[] = Object.freeze(["claude", "codex"]);
+export const SESSION_AGENTS: readonly SessionAgent[] = Object.freeze(["claude", "codex", "agy"]);
 
 /** One resumable past session. `cwd` is non-null by construction: an entry
  *  with no recorded directory cannot be resumed in the right place, so it is
@@ -19,12 +19,18 @@ export interface SessionEntry {
   readonly lastActivityMs: number;
   readonly title: string | null;
   readonly sourcePath: string;
+  readonly manager?: {
+    readonly account: string;
+    readonly isClient: boolean;
+    readonly workspaceExists: boolean;
+    readonly running: boolean;
+  };
 }
 
 export interface SessionsSnapshot {
   readonly entries: readonly SessionEntry[];
   /** Candidate FILES per agent before the cap — what "showing latest N" reads. */
-  readonly totals: Readonly<Record<SessionAgent, number>>;
+  readonly totals: Readonly<Record<"claude" | "codex", number> & { agy?: number }>;
   readonly limit: number;
 }
 

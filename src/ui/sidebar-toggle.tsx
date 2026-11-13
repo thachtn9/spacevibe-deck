@@ -112,7 +112,7 @@ export function SidebarFrameActions(
         <span>Deck</span>
         {isDevelopment ? (
           <span class="sidebar-brand__dev" title="Local development build">
-            DEV
+            ThachTN9
           </span>
         ) : appVersion.value ? (
           <span class="sidebar-brand__version" title={`Version ${appVersion.value}`}>

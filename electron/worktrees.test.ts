@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -129,6 +129,22 @@ describe("parseWorktreePorcelain", () => {
 });
 
 describe("scanRepository", () => {
+  it("returns the resolved plain folder for tree nesting without changing its identity", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "deck-alias-parent-"));
+    try {
+      const parent = join(dir, "parent");
+      const alias = join(dir, "alias");
+      await mkdir(parent);
+      await symlink(parent, alias, "dir");
+      await expect(scanRepository(alias)).resolves.toMatchObject({
+        kind: "plain",
+        canonicalPath: await realpath(parent),
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses an empty path without running git", async () => {
     await expect(scanRepository("")).resolves.toEqual({
       kind: "plain",

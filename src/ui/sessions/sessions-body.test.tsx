@@ -99,12 +99,12 @@ describe("SessionsBody", () => {
     const labels = [...host.querySelectorAll(".sessions-nav__label")].map(
       (node) => node.textContent,
     );
-    expect(labels).toEqual(["All", "Claude", "Codex"]);
+    expect(labels).toEqual(["All", "Codex", "AGY"]);
 
     // WCAG 2.5.3: the full name stays the accessible name, and it contains
     // the short label the chip prints.
-    const claude = host.querySelector('[id="sessions-tab-claude"]');
-    expect(claude?.getAttribute("aria-label")).toBe("Claude Code");
+    const agy = host.querySelector('[id="sessions-tab-agy"]');
+    expect(agy?.getAttribute("aria-label")).toBe("AGY");
   });
 
   it("keeps the full-width rail and its full labels in the screen variant", () => {
@@ -116,9 +116,22 @@ describe("SessionsBody", () => {
     const labels = [...host.querySelectorAll(".sessions-nav__label")].map(
       (node) => node.textContent,
     );
-    expect(labels).toEqual(["All sessions", "Claude Code", "Codex"]);
+    expect(labels).toEqual(["All sessions", "Codex", "AGY"]);
   });
 
+  it("puts an icon-only refresh beside the filters and omits temporary projects", () => {
+    sessionEntries.value = [entry(), entry({ sessionId: "temp", cwd: "/tmp/deck-test" })];
+    sessionProjectFilter.value = "/tmp/deck-test";
+    mount("dock");
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Refresh sessions"]');
+    expect(button?.closest(".sessions-nav")).not.toBeNull();
+    expect(button?.querySelector("svg")).not.toBeNull();
+    expect(button?.textContent).toBe("");
+    const options = [...host.querySelectorAll<HTMLOptionElement>(".sessions-list__project option")];
+    expect(options.map((option) => option.value)).toEqual(["", "/Users/me/work/repo"]);
+    expect(host.querySelector<HTMLSelectElement>(".sessions-list__project")?.value).toBe("");
+    expect(host.querySelectorAll(".session-row")).toHaveLength(2);
+  });
   it("shows a scan failure instead of claiming there are no sessions", () => {
     sessionEntries.value = [];
     sessionsLoadState.value = {

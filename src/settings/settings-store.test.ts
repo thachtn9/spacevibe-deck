@@ -362,6 +362,15 @@ describe("revealDockTab", () => {
   });
 });
 
+describe("revealDockTab with a retired saved selection", () => {
+  it("closes the visible fallback instead of treating it as a different tab", () => {
+    settings.value = { ...DEFAULT_SETTINGS, dockOpen: true, dockTab: "explorer" };
+    expect(revealDockTab("usage", "usage")).toBe(true);
+    expect(settings.value.dockOpen).toBe(false);
+    expect(settings.value.dockTab).toBe("usage");
+  });
+});
+
 describe("openDockTab", () => {
   beforeEach(() => {
     settings.value = { ...DEFAULT_SETTINGS };

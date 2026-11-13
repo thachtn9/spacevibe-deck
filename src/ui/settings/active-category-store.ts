@@ -14,6 +14,7 @@ export type CategoryId =
   | "browser"
   | "shortcuts"
   | "notifications"
+  | "remote"
   // A view over MAIN-owned analytics consent (spec 2026-08-22 §7), not a
   // settings-schema pair — consent must never travel with copied settings.
   | "privacy"

@@ -1,5 +1,5 @@
 /* ── The rail tree's checkout (WorktreeCard, DL-27.28) ─────────────────────
-   A checkout is a label line — branch glyph, branch name, `worktree` tag, a trailing `+` — and
+   A checkout is a label line — branch glyph, branch name, optional `worktree` tag — and
    then its session rows, indented one step. No frame, border or fill groups a checkout: the
    card DL-27.25 drew (head band, disclosure caret, folded strip, `New agent` row) retired on
    Electron with DL-27.28. Design: `docs/internals/agent-rail.md`.
@@ -23,12 +23,10 @@
  */
 .asr-checkout,
 .asr-card__row {
-  /* DL-27.28 (amended 2026-10-07, mock D): measured from the sidebar edge, the rail's 8px plus
-     this puts the checkout's 13px branch glyph (centred in its 14px track) at 22px. */
-  --asr-worktree-inset: 13.5px;
-  /* DL-27.28's one indent step: the session row's edge lands at 26px (8px rail + inset + this),
-     the logo 9px inside it at 35px. */
-  --asr-tree-step: 4.5px;
+  /* Folder, branch and session glyphs advance by the same indent at every depth. */
+  --asr-tree-step: var(--asr-folder-step, 14px);
+  --asr-worktree-inset: calc(5px + var(--asr-tree-step));
+  --asr-card-row-pad-x: 6px;
   /* Radius (spec §9.8). 6px sits between DL-20.1's `--radius-flat` (2px) and `--radius-tight`
      (8px) and matches no existing rung — the owner's own pick (2026-08-25). Every
      `border-radius` in this file is this variable, the pill variable below, or an actual `50%`
@@ -59,14 +57,23 @@
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
+  gap: var(--asr-card-row-gap);
 }
 
 /* DL-27.28: one indent step under the label line. The rows are narrower by that step rather
    than overflowing it, since a margin beside `width: 100%` is the percentage-plus-spacing trap. */
 .asr-checkout > .asr-card__row {
   width: auto;
-  margin-left: calc(var(--asr-worktree-inset) + var(--asr-tree-step));
+  margin-left: calc(var(--asr-worktree-inset) + var(--asr-tree-step) - var(--asr-card-row-pad-x));
+}
+
+/* Without a branch label the session occupies the first level beneath its folder. */
+.asr-checkout[data-branched="false"] > .asr-card__row {
+  margin-left: calc(var(--asr-worktree-inset) - var(--asr-card-row-pad-x));
+}
+
+.asr-checkout[data-branched="false"] > .asr-card__row::before {
+  content: none;
 }
 
 /* The label line is a ROW of controls, not one button: the focus press and the `+` are two
@@ -149,14 +156,10 @@ button.asr-checkout__focus:focus-visible {
   white-space: nowrap;
 }
 
-/* The project cluster (folder header + checkouts) carries no frame, fill or outline, focused or
-   not (DL-27.28, amended 2026-10-07; DL-27.25's 2026-10-04 frame is withdrawn): the focused
-   checkout's label line and the focused row mark where you are. No leading inset: the rail's own
-   8px is the whole margin, so the project icon (14px), the branch glyph (22px) and the rows
-   (26px) are measured from the sidebar edge as in mock D. */
+/* Folder blocks share a right inset; hierarchy comes from the common indent step. */
 .asr-cluster {
   box-sizing: border-box;
-  padding: 3px 6px 6px 0;
+  padding: 0 6px 0 0;
   border-radius: var(--radius-tight);
 }
 
@@ -181,11 +184,8 @@ button.asr-checkout__focus:focus-visible {
   column-gap: var(--asr-card-row-gap-x);
   width: 100%;
   min-height: var(--asr-card-row-h);
-  /* The gap between one row and the next: the checkout's base `gap: 1px` plus this margin
-     totals `--asr-card-row-gap` (2px). Declared on every row rather than only
-     `+ .asr-card__row` so the first row under the label line gets the same room as the rest. */
-  margin-top: calc(var(--asr-card-row-gap) - 1px);
-  padding: var(--asr-card-row-pad-y) 6px var(--asr-card-row-pad-y) 9px;
+  margin-top: 0;
+  padding: var(--asr-card-row-pad-y) var(--asr-card-row-pad-x);
   border: 0;
   border-radius: var(--asr-card-radius);
   /* DL-27.28, amended 2026-10-07: rows are flat — no fill at rest, so the tree reads as text and
@@ -215,7 +215,7 @@ button.asr-checkout__focus:focus-visible {
   position: absolute;
   top: calc(-1 * var(--asr-card-row-gap));
   bottom: 0;
-  left: calc(-1 * var(--asr-tree-step) + 7px);
+  left: calc(var(--asr-card-row-pad-x) + 7px - var(--asr-tree-step));
   width: 1px;
   background: var(--hair);
   pointer-events: none;
@@ -561,4 +561,15 @@ button.asr-checkout__focus:focus-visible {
   height: 20px;
   font-size: var(--type-meta);
   font-weight: 400;
+}
+
+.asr-card__pin {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 4px;
+  color: inherit;
+}
+
+.asr-card__row[data-pane-id] > .asr-card__hit {
+  cursor: grab;
 }

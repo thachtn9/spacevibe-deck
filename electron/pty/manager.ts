@@ -21,9 +21,10 @@ import { validateCwdCandidates, type ShellIntegrationEvent } from "../shell-inte
 import * as macos from "../platform/macos";
 import type { PsRow } from "../platform/macos";
 import * as windows from "../platform/windows";
+import * as linux from "../platform/linux";
 
 function platform() {
-  return process.platform === "win32" ? windows : macos;
+  return process.platform === "win32" ? windows : process.platform === "linux" ? linux : macos;
 }
 
 const STARTUP_TRACE_ENV = "DECK_PTY_STARTUP_TRACE";
@@ -135,6 +136,13 @@ export class PtyManager {
     this.deps.assertOwner(id, windowLabel);
     const session = this.requireSession(id);
     session.pty.resize(cols, rows);
+    if (process.platform === "linux") {
+      void linux.notifyDetachedTerminalResize(
+        session.pty.pid,
+        session.ttyName,
+        () => !session.exited,
+      );
+    }
   }
 
   /**
@@ -243,6 +251,12 @@ export class PtyManager {
 
   snapshots(ids: readonly number[]) {
     return this.store.snapshots(ids);
+  }
+
+  setOutputPaused(id: number, paused: boolean): void {
+    const pty = this.store.get(id)?.pty;
+    if (paused) pty?.pause();
+    else pty?.resume();
   }
 
   liveIds(): number[] {

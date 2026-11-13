@@ -41,6 +41,7 @@ describe("installCommandFor", () => {
   });
 
   it("is null on an unsupported platform, a null entry and an absent install", () => {
+    expect(installCommandFor(AMP, "linux")).toBeNull();
     expect(installCommandFor(AMP, "unsupported")).toBeNull();
     expect(installCommandFor(NO_WINDOWS, "windows")).toBeNull();
     expect(installCommandFor(NO_INSTALL, "macos")).toBeNull();
@@ -57,6 +58,7 @@ describe("installOffer", () => {
   });
 
   it("offers Get with the agent url when the platform has no command", () => {
+    expect(installOffer(input({ platform: "linux" }))).toEqual({ kind: "get", url: AMP.url });
     expect(installOffer(input({ agent: NO_WINDOWS, platform: "windows" }))).toEqual({
       kind: "get",
       url: AMP.url,

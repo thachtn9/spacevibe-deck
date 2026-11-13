@@ -181,6 +181,32 @@ describe("Codex session facts", () => {
   const codexRows = (pid = 777) =>
     parsePsTable(`610 610 ${pid} ttys002 zsh\n${pid} ${pid} ${pid} ttys002 codex`);
   const panes = [snapshot(2, 610, "ttys002")];
+  it("waits for a fresh identity at decision points while normal polls stay asynchronous", async () => {
+    let finish!: (value: Map<number, string>) => void;
+    const sessions = vi.fn(
+      () =>
+        new Promise<Map<number, string>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const reader = createPtyInfoReader(
+      () => ({
+        readProcessTable: async () => codexRows(),
+        foregroundProcess,
+        processCwds: async () => new Map([[777, "/fresh"]]),
+      }),
+      sessions,
+    );
+    let completed = false;
+    const pending = reader.read(panes, [], true).then((infos) => {
+      completed = true;
+      return infos;
+    });
+    await vi.waitFor(() => expect(sessions).toHaveBeenCalledWith([777]));
+    expect(completed).toBe(false);
+    finish(new Map([[777, "own"]]));
+    expect((await pending)[0]).toMatchObject({ cwd: "/fresh", codexSessionId: "own" });
+  });
   it("does not block classification on lsof and surfaces a fact on the next poll", async () => {
     let finish!: (value: Map<number, string>) => void;
     const sessions = vi.fn(

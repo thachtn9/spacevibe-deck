@@ -1,3 +1,5 @@
+import { RailPanePin } from "./rail-pane-pin";
+import { tabViews } from "../terminal/tabs-store";
 import { useRef, useState } from "preact/hooks";
 import { Folder, GitBranch, TerminalWindow, X } from "@phosphor-icons/react";
 import { DeckIcon, CHROME_ICON } from "./controls/deck-icon";
@@ -9,15 +11,14 @@ import type { RailCardEntry, RailCardShell, RailWorktreeGroup } from "./agent-ra
 /**
  * One checkout in the rail tree (DL-27.28; design `docs/internals/agent-rail.md`).
  *
- * A checkout is a LABEL LINE — branch, `worktree` tag, a trailing `+` — and
- * then its session rows, indented one step. No frame, border or fill groups
+ * Git checkouts show their branch above the session rows; linked checkouts
+ * also show a `worktree` tag. Plain folders omit the branch tier. No frame or fill groups
  * them: the card DL-27.25 drew (head, disclosure, folded strip, `New agent`
  * row) retired on Electron with this rule, and the project header's caret is
  * the only fold left. DL-27.25 stays in the design language as the record.
  *
- * Class vocabulary: `.asr-checkout` is the checkout, `__line` its label line
- * (a row of controls, not one button, for the same reason the cluster header
- * is one: the `+` cannot live inside the focus button), `__focus`, `__glyph`,
+ * Class vocabulary: `.asr-checkout` is the checkout, `__line` its label line,
+ * `__focus`, `__glyph`,
  * `__name`, `__tag` and `__add` its parts. The rows keep the `.asr-card__row`
  * family unchanged — hit layer, logo badge, bars and close are
  * DL-27.21's — so the rows did not move when the box around them went.
@@ -99,22 +100,30 @@ function CheckoutMenu({
 }
 
 /** A shell-only tab retained as a first-class selectable row under its checkout. */
-function CardShellRow({
+function CardShellPaneRow({
   project,
   group,
   shell,
   onSelectTab,
   onCloseTab,
+  paneId,
+  paneExact = false,
+  onFocusPane,
+  onClosePane,
 }: {
   readonly project: string;
   readonly group: RailWorktreeGroup;
   readonly shell: RailCardShell;
+  readonly paneId?: number;
+  readonly paneExact?: boolean;
+  readonly onFocusPane: (tabIndex: number, paneId: number) => void;
+  readonly onClosePane: (tabIndex: number, paneId: number) => void;
   readonly onSelectTab: (tabIndex: number) => void;
   readonly onCloseTab: (tabIndex: number) => void;
 }) {
   const where = whereOf(project, group);
   return (
-    <div class="asr-card__row" data-kind="shell" data-focused={shell.active}>
+    <div class="asr-card__row" data-kind="shell" data-focused={shell.active} data-pane-id={paneId}>
       <button
         type="button"
         class="asr-card__hit"
@@ -122,13 +131,17 @@ function CardShellRow({
         aria-label={`Open ${shell.label} in ${where}`}
         title={`${shell.label} — shell`}
         onClick={() => {
-          onSelectTab(shell.tabIndex);
+          if (paneExact && paneId !== undefined) onFocusPane(shell.tabIndex, paneId);
+          else onSelectTab(shell.tabIndex);
         }}
       />
       <span class="asr-card__glyph" aria-hidden="true">
         <DeckIcon icon={TerminalWindow} size={CHROME_ICON} />
       </span>
-      <span class="asr-card__name">{shell.label}</span>
+      <span class="asr-card__name">
+        <RailPanePin id={paneId} />
+        {shell.label}
+      </span>
       <CardLoad />
       <div class="asr-row__actions">
         <button
@@ -136,13 +149,38 @@ function CardShellRow({
           class="asr-row__action asr-row__action--close"
           aria-label={`Close ${shell.label} in ${where}`}
           onClick={() => {
-            onCloseTab(shell.tabIndex);
+            if (paneExact && paneId !== undefined) onClosePane(shell.tabIndex, paneId);
+            else onCloseTab(shell.tabIndex);
           }}
         >
           <DeckIcon icon={X} size={CHROME_ICON} />
         </button>
       </div>
     </div>
+  );
+}
+
+function CardShellRow(props: Parameters<typeof CardShellPaneRow>[0]) {
+  const panes = tabViews.value[props.shell.tabIndex]?.panes ?? [];
+  if (!panes.length) return <CardShellPaneRow {...props} />;
+  return (
+    <>
+      {panes.map((pane, index) => (
+        <CardShellPaneRow
+          {...props}
+          key={pane.paneId}
+          paneId={pane.paneId}
+          paneExact={panes.length > 1 || pane.pinned === true}
+          shell={{
+            ...props.shell,
+            label: panes.length > 1 ? `${props.shell.label} ${index + 1}` : props.shell.label,
+            active: pane.pinned
+              ? pane.focused === true
+              : props.shell.active && pane.focused === true,
+          }}
+        />
+      ))}
+    </>
   );
 }
 
@@ -159,12 +197,16 @@ function CardEntryRow({
   readonly onCloseTab: (tabIndex: number) => void;
   readonly onRenameTab?: (tabIndex: number, name: string | null) => void;
 }) {
+  const focusPane = (tabIndex: number, paneId: number): void => {
+    selectPinnedTab(tabIndex, paneId, props.onSelectTab);
+    props.onFocusPane(tabIndex, paneId);
+  };
   return entry.kind === "agent" ? (
     <CardAgentRow
       project={props.project}
       group={props.group}
       pane={entry}
-      onFocusPane={props.onFocusPane}
+      onFocusPane={focusPane}
       onClosePane={props.onClosePane}
       onRenameTab={props.onRenameTab}
     />
@@ -173,10 +215,23 @@ function CardEntryRow({
       project={props.project}
       group={props.group}
       shell={entry}
+      onFocusPane={focusPane}
+      onClosePane={props.onClosePane}
       onSelectTab={props.onSelectTab}
       onCloseTab={props.onCloseTab}
     />
   );
+}
+
+function selectPinnedTab(
+  tabIndex: number,
+  paneId: number,
+  onSelectTab: (tabIndex: number) => void,
+): void {
+  // Tree navigation selects the owner tab so unrelated regular panes are hidden.
+  if (tabViews.peek()[tabIndex]?.panes?.some((pane) => pane.paneId === paneId && pane.pinned)) {
+    onSelectTab(tabIndex);
+  }
 }
 
 /**
@@ -238,6 +293,7 @@ export function focusCheckout(
     return;
   }
   if (entry.kind === "agent") {
+    selectPinnedTab(entry.tabIndex, entry.paneId, onSelectTab);
     onFocusPane(entry.tabIndex, entry.paneId);
   } else {
     onSelectTab(entry.tabIndex);
@@ -246,6 +302,7 @@ export function focusCheckout(
 
 export function WorktreeCard(props: WorktreeCardProps) {
   const { group, project, actions } = props;
+  const showBranch = !group.primary || (group.labelled && group.hasBranch !== false);
   const menu = useActionsMenu();
   const rootRef = useRef<HTMLDivElement>(null);
   const where = whereOf(project, group);
@@ -260,49 +317,53 @@ export function WorktreeCard(props: WorktreeCardProps) {
       class="asr-checkout"
       data-current={group.active}
       data-primary={group.primary}
+      data-branched={showBranch}
       onContextMenu={(event) => {
         if (actions === undefined) {
           return;
         }
         event.preventDefault();
+        event.stopPropagation();
         menu.openAt(anchor(event.currentTarget));
       }}
     >
-      <div class="asr-checkout__line">
-        {/* A checkout with nothing open has nothing to focus, so pressing its
+      {showBranch && (
+        <div class="asr-checkout__line" data-quota-folder={group.path}>
+          {/* A checkout with nothing open has nothing to focus, so pressing its
             label opens the launch page on it (DL-27.26, amended 2026-10-08).
             Without a launcher the label is plain text. */}
-        {group.entries.length > 0 ? (
-          <button
-            type="button"
-            class="asr-checkout__focus"
-            aria-current={group.active ? "true" : undefined}
-            aria-label={`Focus ${where}`}
-            title={where}
-            onClick={() => {
-              focusCheckout(group, props.onFocusPane, props.onSelectTab);
-            }}
-          >
-            <LineLabel group={group} />
-          </button>
-        ) : actions?.onOpenAgentLauncher !== undefined ? (
-          <button
-            type="button"
-            class="asr-checkout__focus"
-            aria-label={`New agent in ${where}`}
-            title={where}
-            onClick={() => {
-              actions.onOpenAgentLauncher?.(group.path);
-            }}
-          >
-            <LineLabel group={group} />
-          </button>
-        ) : (
-          <span class="asr-checkout__focus" title={where}>
-            <LineLabel group={group} />
-          </span>
-        )}
-      </div>
+          {group.entries.length > 0 ? (
+            <button
+              type="button"
+              class="asr-checkout__focus"
+              aria-current={group.active ? "true" : undefined}
+              aria-label={`Focus ${where}`}
+              title={where}
+              onClick={() => {
+                focusCheckout(group, props.onFocusPane, props.onSelectTab);
+              }}
+            >
+              <LineLabel group={group} />
+            </button>
+          ) : actions?.onOpenAgentLauncher !== undefined ? (
+            <button
+              type="button"
+              class="asr-checkout__focus"
+              aria-label={`New agent in ${where}`}
+              title={where}
+              onClick={() => {
+                actions.onOpenAgentLauncher?.(group.path);
+              }}
+            >
+              <LineLabel group={group} />
+            </button>
+          ) : (
+            <span class="asr-checkout__focus" title={where}>
+              <LineLabel group={group} />
+            </span>
+          )}
+        </div>
+      )}
       {group.entries.map((entry) => (
         <CardEntryRow
           key={entry.kind === "agent" ? entry.paneId : entry.key}

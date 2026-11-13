@@ -1,9 +1,19 @@
+import { copyRemoteWebAssets } from "./remote-web-assets.mjs";
 // A persistent TypeScript compiler follows the actual main/preload import graph.
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 
-const ENTRIES = ["main.ts", "preload.ts", "browser-preload.ts"];
+const ENTRIES = [
+  "code-viewer-helper.ts",
+  "main.ts",
+  "preload.ts",
+  "browser-preload.ts",
+  "web-review-page-preload.ts",
+  "pty/persistent-daemon.ts",
+  "desktop-agents/entry.ts",
+  "desktop-agents/preload.ts",
+];
 const COMPILE_DELAY_MS = 60;
 
 function commonJsExtension(context) {
@@ -105,6 +115,8 @@ export function watchMain({
       if (!destination.endsWith(".map")) changed = true;
     }
     if (initial) {
+      if (existsSync(path.join(root, "electron", "remote", "web.ts")))
+        copyRemoteWebAssets(root, output);
       const vendor = path.join(root, "electron", "vendor");
       if (existsSync(vendor))
         cpSync(vendor, path.join(output, "electron", "vendor"), { recursive: true });

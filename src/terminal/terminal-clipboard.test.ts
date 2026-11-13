@@ -27,6 +27,52 @@ function createPasteHarness(selection = ""): PasteHarness {
 }
 
 describe("copyTerminalSelection / pasteIntoTerminal", () => {
+  it("pastes a quoted image path instead of accompanying clipboard text without submitting", async () => {
+    const h = createPasteHarness();
+    pasteIntoTerminal(h.terminal, {
+      ...h,
+      readImage: async () => "/home/user/SpaceVibe Deck/clipboard-images/image.png",
+    });
+    await vi.waitFor(() =>
+      expect(h.terminal.paste).toHaveBeenCalledExactlyOnceWith(
+        '"/home/user/SpaceVibe Deck/clipboard-images/image.png"',
+      ),
+    );
+    expect(h.readText).not.toHaveBeenCalled();
+  });
+
+  it("keeps normal text paste when the clipboard contains no image", async () => {
+    const h = createPasteHarness();
+    pasteIntoTerminal(h.terminal, { ...h, readImage: async () => null });
+    await vi.waitFor(() => expect(h.terminal.paste).toHaveBeenCalledWith("line one\r\nline two"));
+  });
+
+  it("uses an AGY file reference so the agent can load the image", async () => {
+    const h = createPasteHarness();
+    pasteIntoTerminal(
+      { ...h.terminal, agent: () => "agy" },
+      { ...h, readImage: async () => "/home/user/SpaceVibe Deck/image.png" },
+    );
+    await vi.waitFor(() =>
+      expect(h.terminal.paste).toHaveBeenCalledExactlyOnceWith(
+        '@"/home/user/SpaceVibe Deck/image.png" ',
+      ),
+    );
+  });
+
+  it("reports an image save failure without silently pasting unrelated text", async () => {
+    const h = createPasteHarness();
+    pasteIntoTerminal(h.terminal, {
+      ...h,
+      readImage: async () => {
+        throw new Error("disk full");
+      },
+    });
+    await vi.waitFor(() => expect(h.reportError).toHaveBeenCalledOnce());
+    expect(h.readText).not.toHaveBeenCalled();
+    expect(h.terminal.paste).not.toHaveBeenCalled();
+  });
+
   it("routes paste through Terminal.paste so xterm brackets it and normalizes CRLF", async () => {
     const h = createPasteHarness();
 

@@ -55,7 +55,7 @@ export function windowChromeOptions(
   platform: NodeJS.Platform,
   overlay: OverlayColors,
 ): WindowChromeOptions {
-  if (platform !== "win32") {
+  if (platform !== "win32" && platform !== "linux") {
     return { titleBarStyle: "hiddenInset" };
   }
   return {

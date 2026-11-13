@@ -58,8 +58,71 @@ describe("createTabManager dropAgentPane", () => {
     return { pty, ...wire(pty) };
   }
 
+  it("switches accounts without changing pane ids, tab identity or pinned placement", async () => {
+    const { tm, pty } = build([]);
+    await tm.openFromPreset({ type: "leaf" }, ["/work"], { workspacePath: "/work", agent: null });
+    let running = true;
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const killForeground = vi.fn(async () => {
+      running = false;
+    });
+    Object.assign(pty, { killForeground });
+    vi.spyOn(pty, "ptyInfo").mockImplementation(async () => [
+      {
+        id: 1,
+        processId: running ? 123 : 100,
+        cwd: "/work",
+        process: running ? "codex" : "bash",
+        kind: running ? "agent" : "idle-shell",
+        agent: running ? "codex" : null,
+        codexSessionId: running ? sessionId : null,
+      },
+    ]);
+    await tm.pinPane(1, "left");
+    const tabKey = tabViews.value[0].key;
+    const before = tm.captureSession()[0].panes[0].pin;
+    const pending = tm.switchPaneAccount(1, { id: "codex2", agent: "codex" }, () => true);
+    await expect(
+      tm.switchPaneAccount(1, { id: "codex3", agent: "codex" }, () => true),
+    ).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(600);
+    await expect(pending).resolves.toBe(true);
+    expect(killForeground).toHaveBeenCalledOnce();
+    expect(pty.writes).toEqual([
+      { id: 1, data: expect.stringContaining(`cli resume ${sessionId} --acc codex2\r`) },
+    ]);
+    expect(tm.allPaneIds()).toEqual([1]);
+    expect(tabViews.value[0].key).toBe(tabKey);
+    expect(tm.captureSession()[0].panes[0]).toMatchObject({
+      pin: before,
+      launchCommand: `cli resume ${sessionId} --acc codex2`,
+    });
+    tm.dispose();
+  });
+
+  it("launches an explicit quota account in a split of the same tab", async () => {
+    const { tm, pty } = build([]);
+    await tm.openFromPreset({ type: "leaf" }, ["/work"], { workspacePath: "/work", agent: null });
+    const count = tabViews.value.length;
+    const ok = await tm.dropAgentPane(1, "right", {
+      agent: "codex",
+      command: "cli codex1",
+      cwd: "/work/nested",
+      canCommit: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(ok).toBe(true);
+    expect(tabViews.value.length).toBe(count);
+    expect(tm.allPaneIds()).toEqual([1, 2]);
+    expect(pty.writes).toEqual([{ id: 2, data: "cli codex1\r" }]);
+    expect(
+      tabViews.value.flatMap((tab) => tab.panes ?? []).find((pane) => pane.paneId === 2)?.account,
+    ).toBe("codex1");
+    tm.dispose();
+  });
+
   it("docks a pane into the active tab and types the workspace's remembered agent", async () => {
-    const { tm, pty } = build([{ name: "codex", path: "/bin/codex" }]);
+    const { tm, pty } = build([{ name: "cli-codex", path: "/bin/cli-codex" }]);
     workspacesData.value = {
       version: WORKSPACES_VERSION,
       recents: [{ path: "/work", lastOpenedAt: 1, lastAgent: "codex" }],
@@ -77,9 +140,7 @@ describe("createTabManager dropAgentPane", () => {
     // A pane joined the tab; no tab was created.
     expect(tabViews.value.length).toBe(tabCount);
     expect(tm.allPaneIds()).toEqual([1, 2]);
-    expect(pty.writes).toEqual([
-      { id: 2, data: "codex --dangerously-bypass-approvals-and-sandbox -c tui.animations=false\r" },
-    ]);
+    expect(pty.writes).toEqual([{ id: 2, data: "cli-codex\r" }]);
     tm.dispose();
   });
 
@@ -117,7 +178,7 @@ describe("createTabManager dropAgentPane", () => {
     });
     const base = createMemoryPtyClient({
       nextId: 1,
-      agents: [{ name: "codex", path: String.raw`C:\bin\codex.exe` }],
+      agents: [{ name: "cli-codex", path: String.raw`C:\bin\cli-codex.exe` }],
     });
     const pty = {
       ...base,
@@ -156,7 +217,7 @@ describe("createTabManager dropAgentPane", () => {
   it("falls back to the first detected agent for a workspace with no memory", async () => {
     const { tm, pty } = build([
       { name: "claude", path: "/bin/claude" },
-      { name: "codex", path: "/bin/codex" },
+      { name: "cli-codex", path: "/bin/cli-codex" },
     ]);
     await tm.openFromPreset({ type: "leaf" }, ["/fresh"], {
       workspacePath: "/fresh",

@@ -1,0 +1,47 @@
+# Local Linux packages. Upstream does not publish a Linux update feed.
+appId: dev.spacevibe.deck.linux
+productName: SpaceVibe Deck
+directories:
+  output: dist-electron-linux
+extraMetadata:
+  main: dist-electron/electron/main.cjs
+  productName: SpaceVibe Deck
+  description: A desktop terminal for AI agent CLIs
+  license: MIT
+  homepage: https://github.com/mxrsv/spacevibe-deck
+  desktopName: spacevibe-deck.desktop
+files:
+  - dist/**
+  - dist-electron/electron/**/*.cjs
+  - dist-electron/src/**/*.cjs
+  - dist-electron/electron/vendor/**
+  - package.json
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  icon: src-tauri/icons/icon.png
+  executableName: spacevibe-deck
+  syncDesktopName: true
+  artifactName: SpaceVibe-Deck-${version}-linux-${arch}.${ext}
+  maintainer: Local Linux build <linux@localhost>
+  synopsis: A desktop terminal for AI agent CLIs
+  description: Community Linux build of SpaceVibe Deck by mxrsv, licensed under MIT.
+deb:
+  depends:
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnss3
+    - libgbm1
+    - libasound2 | libasound2t64
+    - libcups2 | libcups2t64
+    - libnotify4
+    - libxtst6
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libsecret-1-0
+    - xdg-utils
+    - lsof

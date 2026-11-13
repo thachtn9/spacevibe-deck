@@ -443,6 +443,28 @@ describe("createTerminalManager swapDirection", () => {
 });
 
 describe("createTerminalManager show", () => {
+  it("fits each visible pane when its split animation ends, and leaves hidden tabs alone", async () => {
+    const { tm, container, fitCounts } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    tm.show();
+    const finishAnimation = () => {
+      for (const child of container.querySelectorAll(".split__child")) {
+        const event = new Event("transitionend", { bubbles: true });
+        Object.defineProperty(event, "propertyName", { value: "flex-grow" });
+        child.dispatchEvent(event);
+      }
+    };
+    fitCounts.clear();
+    finishAnimation();
+    for (const id of tm.paneIds()) expect(fitCounts.get(id)).toBe(1);
+    tm.hide();
+    fitCounts.clear();
+    finishAnimation();
+    expect(fitCounts.size).toBe(0);
+    tm.dispose();
+  });
+
   it("show() with no args displays the container, fits every pane, and focuses the active pane exactly once", async () => {
     const { tm, container, onPaneFocus, fitCounts } = setup();
     await tm.initFresh();

@@ -346,6 +346,29 @@
   position: relative; /* anchor for the pane zoom overlay */
 }
 
+/* Pinned panes share the stage while the workspace underneath switches tabs. */
+.terminal-workspace {
+  display: flex;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stage__tabs > .split {
+  min-width: 0;
+  min-height: 0;
+}
+
+.pinned-workspace-empty {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  box-sizing: border-box;
+  color: var(--text-muted);
+  font: var(--type-meta) var(--ui-font);
+}
+
 /* Pane zoom (tmux-style): the zoomed pane's element is reparented into an
    overlay covering the tab, leaving the split layout untouched underneath */
 .zoom-overlay {

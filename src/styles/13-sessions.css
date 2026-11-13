@@ -193,6 +193,13 @@
   flex-direction: row;
   border-right: none;
   min-height: auto;
+  display: flex;
+  align-items: center;
+}
+
+.sessions-refresh {
+  flex: none;
+  margin: 6px 12px 2px auto;
 }
 
 .sessions-nav--compact .sessions-nav__list {
@@ -201,7 +208,8 @@
   padding: 6px 12px 2px;
   overflow-x: auto;
   overflow-y: hidden;
-  width: 100%;
+  min-width: 0;
+  flex: 1;
 }
 
 .sessions-nav--compact .sessions-nav__item {

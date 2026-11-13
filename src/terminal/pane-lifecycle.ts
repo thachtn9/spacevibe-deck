@@ -1,3 +1,5 @@
+import type { PersistentTerminalSnapshot } from "../lib/persistent-terminal";
+import { persistentTerminal } from "./persistent-terminal-client";
 import type { Settings } from "../settings/settings-schema";
 import { reportPersistError } from "../chrome/events";
 import { leaf, leafIds, replaceLeaf, type TreeNode } from "../lib/split-tree";
@@ -21,7 +23,7 @@ export type CreatePaneFn = (
 export interface PaneLifecycle {
   readonly panes: Map<number, Pane>;
   readonly exited: Set<number>;
-  spawnPane(cwd?: string | null): Promise<Pane>;
+  spawnPane(cwd?: string | null, attached?: PersistentTerminalSnapshot | null): Promise<Pane>;
   discardPane(pane: Pane): void;
   adoptPane(payload: AdoptionPayload): Pane;
   /** Forget a pane without killing its PTY — the move's source side. */
@@ -62,12 +64,15 @@ export function createPaneLifecycle(deps: {
   onWriteWhileExited: (id: number, data: string) => void;
   onFocus: (id: number) => void;
   onUserInput?: (id: number) => void;
+  onUserInputData?: (id: number, data: string) => void;
+  inputBlocked?: (id: number) => boolean;
   onAttentionSignal?: (id: number, signal: PaneAttentionSignal) => void;
   /** Test seam — defaults to real createPane (xterm). */
   createPane?: CreatePaneFn;
 }): PaneLifecycle {
   const panes = new Map<number, Pane>();
   const exited = new Set<number>();
+  const pendingAttachments = new Set<number>();
   const respawning = new Set<number>();
   const makePane = deps.createPane ?? createPane;
 
@@ -90,6 +95,7 @@ export function createPaneLifecycle(deps: {
   const writeHolds = new Map<number, Promise<void>>();
 
   function enqueueWrite(id: number, data: string, userInput = false): Promise<boolean> {
+    if (deps.inputBlocked?.(id)) return Promise.resolve(false);
     if (exited.has(id)) {
       deps.onWriteWhileExited(id, data);
       return Promise.resolve(false);
@@ -98,17 +104,18 @@ export function createPaneLifecycle(deps: {
     const result = tail.then(async () => {
       // Re-checked at drain time, not only at enqueue time: the pane may have
       // exited or closed while this write waited its turn.
-      if (exited.has(id) || !panes.has(id)) {
+      if (exited.has(id) || !panes.has(id) || deps.inputBlocked?.(id)) {
         return false;
       }
       await writeHolds.get(id);
       // Re-checked again after the gate: a transfer can outlive this pane in
       // THIS window — the source releases it the moment the move commits.
-      if (exited.has(id) || !panes.has(id)) {
+      if (exited.has(id) || !panes.has(id) || deps.inputBlocked?.(id)) {
         return false;
       }
       try {
         await deps.pty.writePty(id, data);
+        if (userInput) deps.onUserInputData?.(id, data);
         if (userInput) deps.onUserInput?.(id);
         return true;
       } catch {
@@ -175,7 +182,19 @@ export function createPaneLifecycle(deps: {
     },
   };
 
-  async function spawnPane(cwd: string | null = null): Promise<Pane> {
+  async function spawnPane(
+    cwd: string | null = null,
+    attached?: PersistentTerminalSnapshot | null,
+  ): Promise<Pane> {
+    if (attached) {
+      const pane = makePane(attached.id, deps.getSettings(), paneEvents, attached);
+      panes.set(pane.id, pane);
+      setPaneCwd(pane.id, attached.metadata.cwd ?? cwd);
+      pendingAttachments.add(pane.id);
+      pane.write(attached.screen);
+      await pane.flush();
+      return pane;
+    }
     const id = await deps.pty.spawnShell({
       cols: INITIAL_COLS,
       rows: INITIAL_ROWS,
@@ -190,7 +209,10 @@ export function createPaneLifecycle(deps: {
   }
 
   function discardPane(pane: Pane): void {
-    deps.pty.killPty(pane.id).catch(() => {
+    (pendingAttachments.delete(pane.id)
+      ? persistentTerminal.detach(pane.id)
+      : deps.pty.killPty(pane.id)
+    ).catch(() => {
       // Session already gone — ignore
     });
     panes.delete(pane.id);
@@ -242,7 +264,7 @@ export function createPaneLifecycle(deps: {
   function killAll(): void {
     for (const pane of panes.values()) {
       deps.pty.killPty(pane.id).catch(() => {
-        // Session already gone — ignore
+        // Session already gone — ignore.
       });
     }
   }

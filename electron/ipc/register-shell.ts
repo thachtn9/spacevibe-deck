@@ -6,6 +6,7 @@
 import { app, BrowserWindow, clipboard, ipcMain, Notification, shell } from "electron";
 import { FRAME_HEIGHT_PX, isOverlayColor } from "../window-options";
 import { CHANNELS } from "./channels";
+import { readClipboardImage } from "../clipboard-image";
 
 /**
  * Schemes Deck will hand to the OS.
@@ -40,7 +41,7 @@ export function registerShell(platform: NodeJS.Platform = process.platform): voi
   ipcMain.handle(CHANNELS.windowSetTitleBarOverlay, (event, payload: unknown) => {
     // Only a Windows renderer calls this, and only when the frame corner's
     // colour changes; any other host resolves without touching the window.
-    if (platform !== "win32") {
+    if (platform !== "win32" && platform !== "linux") {
       return;
     }
     // Untrusted: the payload is taken whole so a missing or non-object one is a
@@ -74,6 +75,7 @@ export function registerShell(platform: NodeJS.Platform = process.platform): voi
     return shell.openExternal(parsed.href);
   });
   ipcMain.handle("clipboard_read_text", () => clipboard.readText());
+  ipcMain.handle(CHANNELS.clipboardReadImage, () => readClipboardImage());
   ipcMain.handle("clipboard_write_text", (_event, { text }) => clipboard.writeText(text));
   // Electron needs no permission grant for notifications; answering true keeps
   // the renderer's request/grant flow unchanged.

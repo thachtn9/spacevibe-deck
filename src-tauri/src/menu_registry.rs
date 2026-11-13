@@ -110,12 +110,7 @@ pub fn build_view_menu<R: Runtime>(
         "Explorer",
         Some("CmdOrCtrl+Shift+B"),
     )?;
-    let toggle_usage = action_item(
-        handle,
-        "toggle-usage",
-        "Token Usage",
-        Some("CmdOrCtrl+Shift+U"),
-    )?;
+    let toggle_usage = action_item(handle, "toggle-usage", "Quota", Some("CmdOrCtrl+Shift+U"))?;
     let toggle_sessions = action_item(
         handle,
         "toggle-sessions",

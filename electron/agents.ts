@@ -9,10 +9,11 @@
  * picker collapses to Shell only — while a dev run launched from a terminal
  * inherits the terminal's PATH and hides the bug.
  */
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import * as macos from "./platform/macos";
 import * as windows from "./platform/windows";
+import * as linux from "./platform/linux";
 import { ACTIVE_AGENT_IDS } from "../src/lib/agents/agent-registry";
 
 /** A login shell that hangs (a `.zprofile` waiting on the network) must not
@@ -186,7 +187,7 @@ export function discoverAgentsWindows(
  * it as one let the renderer cache "no agent is installed" as fact. The
  * renderer's store keeps its last good list on a rejection and retries.
  */
-export function discoverAgents(requested: readonly string[]): Promise<AgentInfo[]> {
+export async function discoverAgents(requested: readonly string[]): Promise<AgentInfo[]> {
   if (process.platform === "win32") {
     return Promise.resolve(discoverAgentsWindows(requested));
   }
@@ -194,21 +195,67 @@ export function discoverAgents(requested: readonly string[]): Promise<AgentInfo[
   // `command -v` exits 1 for a missing name, so the trailing `true` keeps a
   // completed probe at exit 0 and leaves any `error` meaning a real failure.
   const script = [...names.map((name) => `command -v ${name}`), "true"].join("; ");
-  const launch = macos.shellLaunch();
-  return new Promise((resolve, reject) => {
-    execFile(
-      launch.executable,
-      ["-ilc", script],
-      { encoding: "utf8", timeout: DETECT_TIMEOUT_MS, env: process.env },
-      (error, stdout) => {
-        if (error !== null) {
-          reject(error);
-          return;
+  const launch = (process.platform === "linux" ? linux : macos).shellLaunch();
+  const probe = (executable: string, args: string[]): Promise<AgentInfo[]> =>
+    new Promise((resolve, reject) => {
+      const child = spawn(executable, args, {
+        env: process.env,
+        // An interactive probe must not take job control of the terminal
+        // that launched Electron and suspend the application's process group.
+        detached: process.platform === "linux",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let output = "";
+      const abort = (message: string) => {
+        if (process.platform === "linux" && child.pid) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+          } catch {
+            // The shell may already have exited.
+          }
+        } else {
+          child.kill("SIGKILL");
         }
-        resolve(parseCommandVOutput(String(stdout ?? ""), names));
-      },
-    );
-  });
+        reject(new Error(message));
+      };
+      const timer = setTimeout(() => abort("Agent discovery timed out."), DETECT_TIMEOUT_MS);
+      timer.unref();
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        output += chunk;
+        if (output.length > 1024 * 1024) abort("Agent discovery output exceeded its limit.");
+      });
+      child.stderr.resume();
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("exit", (code, signal) => {
+        if (code !== 0) {
+          clearTimeout(timer);
+          reject(Object.assign(new Error("Agent discovery shell failed."), { code, signal }));
+        }
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve(parseCommandVOutput(output, names));
+      });
+      // Discovery never supplies input. Let rc-file reads see EOF instead of
+      // waiting until the timeout for a terminal that does not exist.
+      child.stdin?.end();
+    });
+  try {
+    return await probe(launch.executable, ["-ilc", script]);
+  } catch (error) {
+    if (process.platform !== "linux") throw error;
+    // A Linux rc hook can fail or block when launched without a terminal.
+    // Retry the inherited PATH without loading that same hook again.
+    const fallback = await probe("/bin/sh", ["-c", script]).catch(() => []);
+    if (fallback.length > 0) return fallback;
+    // An incomplete discovery is not proof that no agents are installed.
+    // Preserve the renderer's last good list and its retry behavior.
+    throw error;
+  }
 }
 
 /** Existence check for workspace recents; order mirrors input. */

@@ -1,12 +1,9 @@
 /**
  * Session history state. Window-scoped module store (R5).
  *
- * Deliberately NOT a poll. The usage screen polls because its numbers move
- * while you look at them; a history list does not — the spec is scan-on-open,
- * re-stat on re-open, and the main-process cache makes the second open cheap.
- * A 5 s poll here would re-read up to 1000 transcript heads for nothing.
- * The one other trigger is the rail asking for a first prompt it lacks,
- * throttled to a scan per 30 s (`requestSessionTitles`).
+ * The dock refreshes on open or explicitly through Refresh. Rail title requests
+ * are throttled to once per 30 seconds. Manager sessions use the manager's
+ * titles; legacy scanner entries may still enrich their latest transcript tail.
  */
 import { batch, signal } from "@preact/signals";
 import { defaultSessionsClient, type SessionsClient } from "./sessions-client";
@@ -15,7 +12,7 @@ import type { AgentFilter } from "./session-filters";
 import type { SessionTailAnswer } from "../lib/agent-resume";
 import {
   SESSIONS_DEFAULT_LIMIT,
-  type SessionAgent,
+  type SessionsSnapshot,
   type SessionEntry,
 } from "../lib/session-history";
 import { LOAD_IDLE, LOAD_LOADING, LOAD_READY, loadError, type LoadState } from "../lib/load-state";
@@ -27,7 +24,7 @@ export interface RecentSessionEntry extends SessionEntry {
 }
 
 export const sessionEntries = signal<readonly SessionEntry[]>([]);
-export const sessionTotals = signal<Readonly<Record<SessionAgent, number>>>({
+export const sessionTotals = signal<SessionsSnapshot["totals"]>({
   claude: 0,
   codex: 0,
 });
@@ -130,7 +127,8 @@ async function loadRecent(
     .sort((left, right) => right.lastActivityMs - left.lastActivityMs)
     .slice(0, RECENT_SESSIONS_LIMIT);
   const projects = [...new Set(entries.map((entry) => entry.cwd))];
-  const requests = entries.map((entry) => ({
+  const tailEntries = entries.filter((entry) => !entry.manager);
+  const requests = tailEntries.map((entry) => ({
     agent: entry.agent,
     cwd: entry.cwd,
     lastSeenAt: entry.lastActivityMs,
@@ -141,9 +139,9 @@ async function loadRecent(
     return undefined;
   }
   return {
-    entries: entries.map((entry, index) => ({
+    entries: entries.map((entry) => ({
       ...entry,
-      summary: recentSummary(entry, tails[index]),
+      summary: recentSummary(entry, entry.manager ? null : tails[tailEntries.indexOf(entry)]),
     })),
     deadProjects: new Set(projects.filter((_, index) => alive[index] !== true)),
   };
@@ -214,8 +212,9 @@ export function requestSessionTitles(
   if (!sessionsSupported.value || sessionsLoadState.value.status === "loading") {
     return;
   }
-  const known = new Set(sessionEntries.value.map((entry) => entry.sessionId));
-  if (sessionIds.every((id) => known.has(id))) {
+  const known = new Map(sessionEntries.value.map((entry) => [entry.sessionId, entry]));
+  // Manager titles can arrive after the first prompt or change during a session.
+  if (sessionIds.every((id) => known.has(id) && !known.get(id)?.manager)) {
     return;
   }
   if (now - lastTitleScanAt < SESSION_TITLE_SCAN_INTERVAL_MS) {

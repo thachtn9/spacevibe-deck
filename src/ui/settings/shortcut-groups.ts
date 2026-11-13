@@ -13,6 +13,7 @@
  */
 import {
   ACTION_REGISTRY,
+  RETIRED_ACTIONS,
   type ActionDefinition,
   type ActionId,
 } from "../../terminal/action-registry";
@@ -173,7 +174,7 @@ export function shortcutGroups(): readonly ShortcutGroup[] {
     byGroup.set(group.id, []);
   }
   for (const action of ACTION_REGISTRY as readonly ActionDefinition[]) {
-    if (NOT_REBINDABLE.has(action.id)) {
+    if (NOT_REBINDABLE.has(action.id) || RETIRED_ACTIONS.has(action.id)) {
       continue;
     }
     const target = PLACEMENT[action.id] ?? "other";

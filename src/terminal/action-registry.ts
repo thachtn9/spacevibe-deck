@@ -5,6 +5,13 @@
  * reads `scope`. See docs/internals/terminal.md.
  */
 
+/** Retain persisted action ids without exposing or dispatching removed features. */
+export const RETIRED_ACTIONS: ReadonlySet<string> = new Set([
+  "toggle-explorer",
+  "toggle-prompts",
+  "toggle-browser",
+]);
+
 export type OverlayTier = "pane" | "settings" | "board" | "modal";
 
 /**
@@ -479,7 +486,7 @@ export const ACTION_REGISTRY = [
   },
   {
     id: "toggle-usage",
-    label: "Token Usage",
+    label: "Quota",
     // `"pane"` since 2026-08-16, and the trailing ellipsis went with it. This
     // was `"always"` because `usageOpen` pushed rank 20 in `openOverlayRanks()`
     // and a `"pane"`-tiered action would have blocked itself, stranding a

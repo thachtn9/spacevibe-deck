@@ -1,3 +1,5 @@
+import "./build-review-extension.mjs";
+import { copyRemoteWebAssets } from "./remote-web-assets.mjs";
 /* oxlint-disable eslint/no-console -- CLI tooling: stdout is the interface */
 // Rename the compiled main process to `.cjs`.
 //
@@ -71,3 +73,5 @@ if (existsSync(VENDOR_SRC)) {
   cpSync(VENDOR_SRC, VENDOR_OUT, { recursive: true });
   console.log(`copied ${VENDOR_SRC} -> ${VENDOR_OUT}`);
 }
+
+copyRemoteWebAssets(process.cwd(), ROOT);

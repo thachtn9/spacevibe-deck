@@ -64,6 +64,12 @@ describe("isLaunchCommand", () => {
 });
 
 describe("commandAgentId / commandFlags", () => {
+  it("recognizes the configured CLI managers as their branded agents", () => {
+    expect(commandAgentId("cli-agy")).toBe("agy");
+    expect(commandAgentId("cli-codex --model test-model")).toBe("codex");
+    expect(agentCommandProblem("codex", "cli-codex")).toBeNull();
+  });
+
   it("splits a command into its binary and its flags", () => {
     expect(commandAgentId("claude --permission-mode plan")).toBe("claude");
     expect(commandFlags("claude --permission-mode plan")).toBe("--permission-mode plan");

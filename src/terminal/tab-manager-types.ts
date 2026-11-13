@@ -13,7 +13,9 @@ import type { ShortcutAction } from "./keymap";
 import type { TerminalManager, TerminalManagerDeps } from "./terminal-manager";
 import type { PaneAttentionSnapshot } from "./agent-attention";
 import type { AgentNotifier } from "./agent-notifier";
+import type { SessionActivity } from "../lib/agent-resume";
 import type { InjectOutcome } from "../prompts/inject";
+import type { ReviewCandidate, ReviewDelivery, ReviewTarget } from "../lib/web-review";
 import type { MaterializeIntent, PaneLaunchReceipt } from "./tab-materialize";
 import type { LaunchTaskOutcome, LaunchTaskResult } from "./task-prompt-send";
 import type { Settings } from "../settings/settings-schema";
@@ -155,6 +157,10 @@ export interface TabManagerDeps extends TerminalManagerDeps {
 
 /** Owns all tabs: routing, keyboard, agent launch; info polling lives in PaneInfoPoller. */
 export interface TabManager {
+  noteSessionActivity?(paneId: number, sessionId: string, activity: SessionActivity): void;
+  pinPane(paneId: number, edge?: Edge, targetPaneId?: number): boolean;
+  unpinPane(paneId: number): void;
+  pinDropRects(): readonly PaneRect[];
   captureAgentLaunchTarget(
     workspacePath: string,
     checkoutRoots?: readonly string[],
@@ -220,9 +226,26 @@ export interface TabManager {
    * creating a tab (`openQuickAgent` and every preset/board open create one).
    * Resolves `false` when nothing was created.
    */
-  dropAgentPane(targetPaneId: number, edge: Edge): Promise<boolean>;
+  dropAgentPane(
+    targetPaneId: number,
+    edge: Edge,
+    launch?: {
+      readonly agent: "codex" | "agy";
+      readonly command: string;
+      readonly cwd: string;
+      readonly canCommit: () => boolean;
+    },
+  ): Promise<boolean>;
   /** Live pane geometry of the active tab, for a drag started off the stage. */
   activeSlotRects(): readonly PaneRect[];
+  /** Visible pane bars, including pinned panes; account drops replace the agent here. */
+  activeHeaderRects(): readonly PaneRect[];
+  /** Stop and resume this exact conversation under a validated CLI Manager account. */
+  switchPaneAccount(
+    paneId: number,
+    account: { readonly id: string; readonly agent: string },
+    canSwitch: () => boolean,
+  ): Promise<boolean>;
   /** Owner indexes of the strip's space marks, in drawn order (DL-35.3). */
   spaceOrder(): readonly number[];
   /**
@@ -275,6 +298,17 @@ export interface TabManager {
    * said. `paneAlive` is the separate question.
    */
   serializePane(paneId: number, lines: number): string | null;
+  /** Resolved display cells for the phone; does not alter the plain Board snapshot. */
+  remoteScreen?(
+    paneId: number,
+    lines: number,
+  ): Omit<import("../lib/deck-remote").RemoteScreen, "capturedAtMs" | "alive"> | null;
+  /** Explicit remote typing through the same bracketed-paste/write queue as local input. */
+  sendRemoteInput(
+    paneId: number,
+    text: string,
+    canSend: () => boolean,
+  ): Promise<{ readonly status: "sent" | "inserted" }>;
   /**
    * Whether this window still holds that pane AND its PTY is running (spec
    * §7's disabled actions). False for an unknown pane, so a caller never has
@@ -295,6 +329,8 @@ export interface TabManager {
    * act wearing a soft label.
    */
   restartPane(paneId: number): Promise<boolean>;
+  webReviewTargets?(clientId: string): ReviewCandidate[];
+  deliverWebReview?(target: ReviewTarget, attemptId: string, clientId: string): Promise<ReviewDelivery>;
   /**
    * Paste `text` into `paneId`, then submit only when the triple gate still
    * holds (spec §7). Never throws: a failed gate degrades to `"pasted"`, a

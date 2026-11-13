@@ -57,6 +57,7 @@ export interface Settings {
    */
   showStatusBar: boolean;
   agentNotifications: boolean;
+  showDesktopAgents: boolean;
   tabBarPosition: TabBarPosition;
   /**
    * Width of the navigation sidebar column, in CSS pixels (DL-18.9). Only
@@ -70,6 +71,8 @@ export interface Settings {
    * the traffic lights and the toolbar keep a column to sit in.
    */
   sidebarCollapsed: boolean;
+  /** The independent quota region below the sidebar's folder tree. */
+  railQuotaOpen: boolean;
   /**
    * The app a path OUTSIDE every open workspace is handed to (design §5).
    *
@@ -252,9 +255,11 @@ export const DEFAULT_SETTINGS: Settings = {
   showPaneBar: false,
   showStatusBar: false,
   agentNotifications: false,
+  showDesktopAgents: true,
   tabBarPosition: "left",
   sidebarWidth: 275,
   sidebarCollapsed: false,
+  railQuotaOpen: true,
   externalAppId: EXTERNAL_APPS[0].id,
   scrollback: 10_000,
   customAgents: [],
@@ -605,6 +610,10 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.agentNotifications === "boolean"
         ? source.agentNotifications
         : DEFAULT_SETTINGS.agentNotifications,
+    showDesktopAgents:
+      typeof source.showDesktopAgents === "boolean"
+        ? source.showDesktopAgents
+        : DEFAULT_SETTINGS.showDesktopAgents,
     tabBarPosition: isTabBarPosition(source.tabBarPosition)
       ? source.tabBarPosition
       : DEFAULT_SETTINGS.tabBarPosition,
@@ -616,6 +625,10 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.sidebarCollapsed === "boolean"
         ? source.sidebarCollapsed
         : DEFAULT_SETTINGS.sidebarCollapsed,
+    railQuotaOpen:
+      typeof source.railQuotaOpen === "boolean"
+        ? source.railQuotaOpen
+        : DEFAULT_SETTINGS.railQuotaOpen,
     externalAppId: migrateExternalAppId(source),
     scrollback:
       typeof source.scrollback === "number" && Number.isFinite(source.scrollback)

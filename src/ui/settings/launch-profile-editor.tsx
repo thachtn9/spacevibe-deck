@@ -11,7 +11,7 @@ import {
   agentHooksSupported,
   ensureAgentHooksSupportLoaded,
 } from "../../settings/agent-hooks-support-store";
-import { BUILTIN_AGENTS, type BuiltinAgent } from "../../lib/agent-catalog";
+import { agentBinary, BUILTIN_AGENTS, type BuiltinAgent } from "../../lib/agent-catalog";
 import { AGENT_LOGOS } from "../../lib/agent-logos";
 import { letterAvatar } from "../../lib/letter-avatar";
 import { detectedAgents } from "../../terminal/agent-detection-store";
@@ -28,6 +28,8 @@ import {
 import { AgentLaunchFlags } from "./agent-launch-flags";
 import { agentLaunchCommand } from "../../lib/launch-command";
 import { modelsFor, runtimeFor, type AgentRuntimeDefault } from "../../launcher/runtime-catalog";
+import { claudeApiHost } from "../../host/claude-api-host";
+import { ClaudeApiSettingsForm } from "./claude-api-settings";
 
 /**
  * The agent catalog in Settings → Agents.
@@ -80,7 +82,7 @@ function CommandLine({ command }: { command: string }) {
   const flags = commandFlags(command);
   return (
     <span class="lp-command">
-      <span class="lp-command__binary">{commandAgentId(command)}</span>
+      <span class="lp-command__binary">{agentBinary(command)}</span>
       {flags !== "" && <span class="lp-command__flags"> {flags}</span>}
     </span>
   );
@@ -250,6 +252,7 @@ function AgentRow({
       </div>
       {/* Keep drafts mounted when collapsed; an invalid value must survive reopening. */}
       <div ref={detailsRef} id={detailsId} class="lp-agent-details" hidden={!expanded.value}>
+        {agent.id === "claude" && claudeApiHost.available && <ClaudeApiSettingsForm />}
         {!installed && (
           <>
             <p class="lp-install-help">
@@ -414,8 +417,8 @@ export function LaunchProfileEditor() {
   }, []);
 
   const installedIds = new Set(detectedAgents.value.map((agent) => agent.name));
-  const installed = BUILTIN_AGENTS.filter((agent) => installedIds.has(agent.id));
-  const available = BUILTIN_AGENTS.filter((agent) => !installedIds.has(agent.id));
+  const installed = BUILTIN_AGENTS.filter((agent) => installedIds.has(agent.binary ?? agent.id));
+  const available = BUILTIN_AGENTS.filter((agent) => !installedIds.has(agent.binary ?? agent.id));
 
   const setEnabled = (agentId: string, next: boolean): void => {
     updateSettings({
@@ -481,7 +484,7 @@ export function LaunchProfileEditor() {
       signals={adapterOf(agent.id)}
       signalsAvailable={agentHooksSupported.value || !HOOK_ONLY_ADAPTER_AGENTS.has(agent.id)}
       onSignals={(next) => setAdapter(agent.id, next)}
-      installed={installedIds.has(agent.id)}
+      installed={installedIds.has(agent.binary ?? agent.id)}
     />
   );
 

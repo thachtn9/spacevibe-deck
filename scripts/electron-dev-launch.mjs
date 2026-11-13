@@ -3,10 +3,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   constants,
+  closeSync,
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
+  openSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -14,6 +16,7 @@ import {
   statSync,
 } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import electronBin from "electron";
 
@@ -84,11 +87,41 @@ export function prepareDevElectron() {
 }
 
 function launch() {
-  const child = spawn(
-    prepareDevElectron(),
-    ["dist-electron/electron/main.cjs", ...process.argv.slice(2)],
-    { cwd: ROOT, stdio: "inherit" },
-  );
+  const args = process.argv.slice(2);
+  if (process.platform === "linux" && args.includes("--background")) {
+    // A separate session and redirected streams keep terminal job-control
+    // signals (including Ctrl+Z) away from the desktop window.
+    const logDir = path.join(
+      process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"),
+      "spacevibe-deck",
+    );
+    mkdirSync(logDir, { recursive: true, mode: 0o700 });
+    const logPath = path.join(logDir, "dev.log");
+    const log = openSync(logPath, "a", 0o600);
+    let child;
+    try {
+      child = spawn(
+        prepareDevElectron(),
+        ["dist-electron/electron/main.cjs", ...args.filter((arg) => arg !== "--background")],
+        { cwd: ROOT, detached: true, stdio: ["ignore", log, log] },
+      );
+    } finally {
+      closeSync(log);
+    }
+    child.once("error", (error) => {
+      console.error("Deck Dev could not launch:", error);
+      process.exitCode = 1;
+    });
+    child.once("spawn", () => {
+      process.stdout.write(`Deck Dev launched (PID ${child.pid}). Log: ${logPath}\n`);
+      child.unref();
+    });
+    return;
+  }
+  const child = spawn(prepareDevElectron(), ["dist-electron/electron/main.cjs", ...args], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
   const forward = (signal) => child.kill(signal);
   process.on("SIGINT", forward);
   process.on("SIGTERM", forward);

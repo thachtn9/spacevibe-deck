@@ -6,6 +6,7 @@ import {
   type FileSurfaceController,
 } from "../files/file-surface-controller";
 import { resetFileSurfaces } from "../files/file-surface-store";
+import { codeViewerRoot } from "../files/code-viewer-store";
 import type { FileClient } from "../files/file-client";
 import { agentQuickPickerOpen, boardOpen, persistError, settingsOpen } from "../chrome/events";
 import { resetAgentBoardStore } from "../ui/agent-board-store";
@@ -98,6 +99,7 @@ beforeEach(() => {
 // `openOverlayRanks()` at "modal", failing unrelated pane-tiered assertions
 // with no visible connection to the cause.
 afterEach(() => {
+  codeViewerRoot.value = null;
   agentQuickPickerOpen.value = false;
   // Same reasoning: the dock-toggle tests below open Settings to prove the
   // overlay half of the guard still blocks them, and a left-true signal would
@@ -565,7 +567,7 @@ describe("file surfaces in the tab strip", () => {
     tm.dispose();
   });
 
-  it("toggle-explorer still reveals and puts away the column while a file surface owns the stage", async () => {
+  it("the retired explorer action leaves the current dock unchanged", async () => {
     const surfaces = fakeSurfaces({ count: 1, total: 1 });
     const { tm } = setup({ deps: { surfaces }, infos: IDLE_SHELLS });
     await tm.materialize({ layout: null, cwds: ["/a"] });
@@ -576,10 +578,10 @@ describe("file surfaces in the tab strip", () => {
 
     tm.runAction("toggle-explorer");
     expect(settings.value.dockOpen).toBe(true);
-    expect(settings.value.dockTab).toBe("explorer");
+    expect(settings.value.dockTab).toBe("usage");
 
     tm.runAction("toggle-explorer");
-    expect(settings.value.dockOpen).toBe(false);
+    expect(settings.value.dockOpen).toBe(true);
     tm.dispose();
   });
 
@@ -1016,6 +1018,23 @@ describe("performable chords (Ctrl+C copies or falls through)", () => {
     // interrupt. Deck writes no `\x03` of its own.
     expect(downstream).toHaveBeenCalledTimes(1);
     expect(downstream).toHaveBeenLastCalledWith(event);
+    tm.dispose();
+  });
+
+  it("blocks pane commands behind the code viewer and leaves its find chord alone", async () => {
+    useWindows();
+    const { tm } = setup({ infos: IDLE_SHELLS });
+    await tm.materialize({ layout: null, cwds: [String.raw`C:\work`] });
+    await tm.init();
+    const before = tabViews.value.length;
+    codeViewerRoot.value = String.raw`C:\work`;
+    const event = press(terminalInput(), { key: "f", ctrlKey: true });
+    expect(event.defaultPrevented).toBe(false);
+    tm.runAction("close-tab");
+    tm.runAction("split-row");
+    await flush();
+    expect(tabViews.value).toHaveLength(before);
+    expect(tabViews.value[0].panes).toHaveLength(1);
     tm.dispose();
   });
 

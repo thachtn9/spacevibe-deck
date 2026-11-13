@@ -74,6 +74,7 @@ export function RailCreate({
   newPaneDrop,
 }: RailCreateProps) {
   const [form, setForm] = useState<HTMLElement | null>(null);
+  const [picking, setPicking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const focused = focusedCheckout(stream);
   const workspace = focused === null ? activeTabWorkspace() : null;
@@ -102,14 +103,19 @@ export function RailCreate({
   const worktreeProject = repositories.find((repository) => repository.path === initialRepo)?.label;
 
   const pickFolder = (): void => {
+    if (picking) return;
+    setPicking(true);
     setNotice(null);
-    void addFolderToRail().then(setNotice);
+    void addFolderToRail(actions?.onOpenFolderTerminal)
+      .then(setNotice)
+      .finally(() => setPicking(false));
   };
 
   return (
     <>
       <RailCreateRow
         variant={variant}
+        folderOnly
         agentTitle={
           agentWhere === null
             ? "Open a workspace — or drag onto a pane to add an agent there"
@@ -118,7 +124,7 @@ export function RailCreate({
         worktreeTitle={
           worktreeProject === undefined ? undefined : `New worktree in ${worktreeProject}`
         }
-        disabled={disabled}
+        disabled={disabled || picking}
         newPaneDrop={newPaneDrop}
         worktreeOpen={form !== null}
         onAgent={openAgent}
@@ -131,6 +137,7 @@ export function RailCreate({
             : undefined
         }
         onFolder={pickFolder}
+        folderTitle="Open a folder in a new terminal tab"
       />
       {notice !== null && (
         <p class="rail-create__notice" role="alert">

@@ -16,6 +16,20 @@
   margin-left: auto;
 }
 
+/* The shipping toolbar keeps panel entry points visible even when closed. */
+.stage--dock-tools .stage__strip {
+  right: 0;
+}
+
+.stage--strip .dock-panel--external-controls {
+  top: var(--frame-h);
+}
+
+.stage__strip-actions > .tabbar__sep,
+.tabbar__sep + .dock-tabs {
+  flex-shrink: 0;
+}
+
 .dock-tabs__chip {
   color: var(--text-faint);
 }

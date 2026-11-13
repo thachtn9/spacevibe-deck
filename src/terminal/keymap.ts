@@ -2,6 +2,7 @@ import {
   MACOS_KEYMAP,
   WINDOWS_KEYMAP,
   isActionId,
+  RETIRED_ACTIONS,
   type ActionId,
   type CharKeyBinding,
   type PhysicalKeyBinding,
@@ -32,7 +33,7 @@ export type ShortcutAction = ActionId;
  * why it, not this, is `matchBinding`'s default.
  */
 export function keymapForPlatform(platform: DesktopPlatform): readonly KeyBinding[] {
-  return platform === "windows" ? WINDOWS_KEYMAP : MACOS_KEYMAP;
+  return platform === "windows" || platform === "linux" ? WINDOWS_KEYMAP : MACOS_KEYMAP;
 }
 
 /**
@@ -81,7 +82,7 @@ export function matchBinding(
   const key = event.key.toLowerCase();
   const altGraph = hasAltGraph(event);
   for (const binding of keymap) {
-    if (altGraph && binding.ctrl && binding.alt) {
+    if (RETIRED_ACTIONS.has(binding.action) || (altGraph && binding.ctrl && binding.alt)) {
       continue;
     }
     const keyMatches = "code" in binding ? binding.code === event.code : binding.key === key;

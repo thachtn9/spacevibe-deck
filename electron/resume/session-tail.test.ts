@@ -6,16 +6,27 @@
  * mirror `resolve.test.ts`'s fixtures deliberately: the same corpus that
  * resolves to an id must resolve to that id's OWN sentence, dedup included.
  */
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   claudeModelFromLines,
+  claudeTaskFromLines,
   claudeTailFromLines,
   codexModelFromLines,
+  codexTaskFromLines,
   codexTailFromLines,
+  codexActivityFromLines,
   resolveSessionTails,
 } from "./session-tail";
 import { tailBytes } from "./head";
@@ -138,6 +149,94 @@ describe("claudeTailFromLines", () => {
 });
 
 describe("codexTailFromLines", () => {
+  it("restores the newest explicit turn state instead of inferring work from process presence", () => {
+    const record = (type: string, timestamp: string, turnId = "turn-one") =>
+      JSON.stringify({
+        type: "event_msg",
+        timestamp,
+        payload: { type, turn_id: turnId },
+      });
+    const start = record("task_started", "2026-10-21T01:00:00Z");
+    const finish = record("task_complete", "2026-10-21T01:10:00Z");
+    expect(codexActivityFromLines([start, "partial-json"])).toEqual({
+      kind: "working",
+      turnId: "turn-one",
+      observedAt: Date.parse("2026-10-21T01:00:00Z"),
+    });
+    expect(codexActivityFromLines([start, finish])?.kind).toBe("completed");
+    expect(
+      codexActivityFromLines([
+        start,
+        finish,
+        record("task_started", "2026-10-21T02:00:00Z", "turn-two"),
+      ])?.turnId,
+    ).toBe("turn-two");
+    expect(codexActivityFromLines([record("turn_aborted", "2026-10-21T02:05:00Z")])?.kind).toBe(
+      "interrupted",
+    );
+    expect(codexActivityFromLines([record("task_started", "bad-date")])).toBeNull();
+    expect(
+      codexActivityFromLines([record("task_complete", "2026-10-21T02:05:00Z", "")]),
+    ).toBeNull();
+  });
+  it("reads the last non-empty public line before clipping, excluding user input and analysis", () => {
+    const lines = [
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          channel: "final",
+          content: [
+            { type: "output_text", text: "Earlier text " + "x".repeat(200) },
+            {
+              type: "output_text",
+              text: "Built successfully.\nAgent cost is above Quota.\n\n```\n",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "My latest request" }],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          channel: "analysis",
+          content: [{ type: "output_text", text: "Private analysis" }],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { type: "function_call_output", output: "Tool result" },
+      }),
+    ];
+    expect(codexTailFromLines(lines, true)).toBe("Agent cost is above Quota.");
+    expect(codexTailFromLines(lines)).toHaveLength(160);
+    expect(
+      claudeTailFromLines(
+        [
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              content: [
+                { type: "text", text: "First line\nLast update\n" },
+                { type: "tool_use", name: "Bash" },
+              ],
+            },
+          }),
+        ],
+        true,
+      ),
+    ).toBe("Last update");
+  });
   it("walks past trailing event records to the newest assistant message", () => {
     const lines = [
       JSON.stringify({
@@ -166,6 +265,55 @@ describe("codexTailFromLines", () => {
       }),
     ];
     expect(codexTailFromLines(lines)).toBeNull();
+  });
+});
+
+describe("current task parsers", () => {
+  it("reads the newest Codex user prompt and skips injected context", () => {
+    const lines = [
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "First task" }],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Current task\nwith detail" }],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [
+            { type: "input_text", text: "<environment_context>ignored</environment_context>" },
+          ],
+        },
+      }),
+    ];
+    expect(codexTaskFromLines(lines)).toBe("Current task with detail");
+  });
+
+  it("reads only user-authored Claude text", () => {
+    const lines = [
+      JSON.stringify({ type: "user", message: { content: "First task" } }),
+      JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", content: "private output" }] },
+      }),
+      JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "text", text: "Current Claude task" }] },
+      }),
+    ];
+    expect(claudeTaskFromLines(lines)).toBe("Current Claude task");
   });
 });
 
@@ -368,8 +516,24 @@ describe("resolveSessionTails", () => {
           type: "response_item",
           payload: {
             type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Prepare the release" }],
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
             role: "assistant",
             content: [{ type: "output_text", text: "Plan ready — approve?" }],
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Fix the current widget title" }],
           },
         }),
         JSON.stringify({ type: "event_msg", payload: { type: "token_count" } }),
@@ -499,6 +663,118 @@ describe("resolveSessionTails", () => {
     expect(tailsOf(home, [{ agent: "codex", cwd: "/tmp/codex", lastSeenAt: T1 }])).toEqual([
       "Plan ready — approve?",
     ]);
+  });
+
+  it("answers the newest user task independently from the conversation's first prompt", () => {
+    expect(
+      resolveSessionTails(home, [{ agent: "codex", cwd: "/tmp/codex", lastSeenAt: T1 }])[0],
+    ).toMatchObject({ id: "cx1", task: "Fix the current widget title" });
+  });
+
+  it("restores a long-running turn beyond the message window and notices its later completion", () => {
+    const source = path.join(
+      home,
+      CODEX_DIR,
+      CODEX_SESSIONS_DIR,
+      `${CODEX_ROLLOUT_PREFIX}long-activity${TRANSCRIPT_EXTENSION}`,
+    );
+    writeAt(
+      source,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { id: "long-activity", source: "cli", cwd: "/tmp/long-activity" },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-10-21T01:00:00Z",
+          payload: { type: "task_started", turn_id: "old-active-turn" },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: { type: "function_call_output", output: "x".repeat(2 * 1024 * 1024) },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Still working on this turn." }],
+          },
+        }),
+      ].join("\n") + "\n",
+      T1,
+    );
+    const request = {
+      agent: "codex",
+      cwd: "/tmp/long-activity",
+      lastSeenAt: T1,
+      preferredId: "long-activity",
+      exact: true,
+    };
+    expect(resolveSessionTails(home, [request])[0]?.activity).toMatchObject({
+      kind: "working",
+      turnId: "old-active-turn",
+    });
+    appendFileSync(
+      source,
+      JSON.stringify({
+        type: "event_msg",
+        timestamp: "2026-10-21T02:00:00Z",
+        payload: { type: "task_complete", turn_id: "old-active-turn" },
+      }) + "\n",
+    );
+    expect(resolveSessionTails(home, [request])[0]?.activity?.kind).toBe("completed");
+  });
+
+  it("finds the user task beyond a recent assistant message and large tool output", () => {
+    const source = path.join(
+      home,
+      CODEX_DIR,
+      CODEX_SESSIONS_DIR,
+      `${CODEX_ROLLOUT_PREFIX}large${TRANSCRIPT_EXTENSION}`,
+    );
+    writeAt(
+      source,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { id: "large-task", cwd: "/tmp/large-task" },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Fix the restored session title" },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: { type: "function_call_output", output: "x".repeat(80 * 1024) },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Checking the session." }],
+          },
+        }),
+      ].join("\n"),
+      T1,
+    );
+    expect(
+      resolveSessionTails(home, [
+        {
+          agent: "codex",
+          cwd: "/tmp/large-task",
+          lastSeenAt: T1,
+          preferredId: "large-task",
+          exact: true,
+        },
+      ])[0],
+    ).toMatchObject({
+      id: "large-task",
+      task: "Fix the restored session title",
+      tail: "Checking the session.",
+    });
   });
 
   it("(d) a resolvable session with no assistant text answers null", () => {

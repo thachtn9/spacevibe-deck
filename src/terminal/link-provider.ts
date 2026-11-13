@@ -10,6 +10,7 @@ import {
 } from "./primary-modifier";
 import { readLogicalLine, type LogicalLine } from "./logical-line";
 import { eslintHeaderText, matchPositionRow } from "./eslint-positions";
+import { available as externalAppsAvailable, openInApp } from "../host/external-apps-host";
 
 /** Resolved lines cached per (cwd, text) — hovering must not re-hit the IPC. */
 const CACHE_LIMIT = 40;
@@ -36,6 +37,7 @@ interface ResolvedLink {
   readonly candidate: LinkCandidate;
   /** The URL, or the absolute path the backend resolved. */
   readonly target: string;
+  readonly revealImage?: boolean;
 }
 
 export interface LinkProviderDeps {
@@ -48,6 +50,18 @@ function openCandidate(link: ResolvedLink, client: LinkClient): void {
   if (link.candidate.kind === "url") {
     client.openUrl(link.target).catch((err: unknown) => {
       reportPersistError(`Couldn't open the link: ${String(err)}`);
+    });
+    return;
+  }
+  if (link.revealImage && externalAppsAvailable) {
+    openInApp({
+      appId: "finder",
+      path: link.target,
+      isDirectory: false,
+      line: 1,
+      column: 1,
+    }).catch((err: unknown) => {
+      reportPersistError(`Couldn't open the image folder: ${String(err)}`);
     });
     return;
   }
@@ -178,7 +192,8 @@ export function createLinkProvider(term: Terminal, deps: LinkProviderDeps): ILin
         callback(undefined);
         return;
       }
-      const onLine = extractLinkCandidates(logical.text);
+      const logicalText = logical.text;
+      const onLine = extractLinkCandidates(logicalText);
       // ESLint's finding rows name a position but no file — the file is the
       // header above them (design §2.3). The walk is synchronous and the
       // header's path joins THIS line's resolve batch, so a cross-line link
@@ -268,7 +283,10 @@ export function createLinkProvider(term: Terminal, deps: LinkProviderDeps): ILin
             return [{ candidate, target: candidate.target }];
           }
           const target = absolute.get(candidate);
-          return target === undefined ? [] : [{ candidate, target }];
+          const revealImage = /\.(?:png|jpe?g|gif|webp|svg|bmp|avif|heic|tiff?|ico)$/iu.test(
+            candidate.target,
+          );
+          return target === undefined ? [] : [{ candidate, target, revealImage }];
         });
       }
 

@@ -28,6 +28,8 @@ import * as opencode from "./opencode";
 import * as opencodeDb from "./opencode-db";
 import { findCandidateById, selectCandidate, type ResumeRequest } from "./resolve";
 import { tailBytes, type CandidateSession } from "./head";
+import type { SessionActivity } from "../../src/lib/agent-resume";
+import { lstatSync } from "node:fs";
 
 /**
  * How much of the end of a transcript is read. The same `IDENTITY_HEAD_BYTES`
@@ -64,21 +66,30 @@ function oneLine(text: string): string | null {
   return flat === "" ? null : flat.slice(0, TAIL_MAX_CHARS);
 }
 
+function lastTextLine(text: string): string | null {
+  const lines = text.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (line && !/^\s*(```|~~~)/.test(line)) return oneLine(line);
+  }
+  return null;
+}
+
 /**
  * Newest-first over a Claude transcript's tail. A turn whose content is only
  * tool use carries no sentence, so the walk continues past it rather than
  * answering with an empty string.
  */
-export function claudeTailFromLines(lines: readonly string[]): string | null {
+export function claudeTailFromLines(lines: readonly string[], lastLine = false): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const node = JSON.parse(lines[i]);
       if (node?.type !== "assistant") continue;
       const content = node.message?.content;
       if (!Array.isArray(content)) continue;
-      for (const part of content) {
+      for (const part of lastLine ? [...content].reverse() : content) {
         if (part?.type === "text" && typeof part.text === "string") {
-          const line = oneLine(part.text);
+          const line = lastLine ? lastTextLine(part.text) : oneLine(part.text);
           if (line !== null) return line;
         }
       }
@@ -94,20 +105,167 @@ export function claudeTailFromLines(lines: readonly string[]): string | null {
  * records (`token_count`, `task_complete`), so the newest assistant message is
  * never the last line.
  */
-export function codexTailFromLines(lines: readonly string[]): string | null {
+export function codexTailFromLines(lines: readonly string[], lastLine = false): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const node = JSON.parse(lines[i]);
       const payload = node?.payload ?? node;
       if (payload?.type !== "message" || payload?.role !== "assistant") continue;
+      if (payload.channel === "analysis") continue;
       const content = payload.content;
       if (!Array.isArray(content)) continue;
-      for (const part of content) {
+      for (const part of lastLine ? [...content].reverse() : content) {
         if (typeof part?.text === "string") {
-          const line = oneLine(part.text);
+          const line = lastLine ? lastTextLine(part.text) : oneLine(part.text);
           if (line !== null) return line;
         }
       }
+    } catch {
+      /* skip */
+    }
+  }
+  return null;
+}
+
+/**
+ * Newest user-authored Codex prompt. Runtime context blocks are also recorded
+ * as user messages, but open with an XML-like tag; those are transport context,
+ * not the task the person asked the agent to do.
+ */
+export function codexTaskFromLines(lines: readonly string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const node = JSON.parse(lines[i]);
+      const payload = node?.payload ?? node;
+      let text: string | null = null;
+      if (payload?.type === "user_message" && typeof payload.message === "string") {
+        text = payload.message;
+      } else if (payload?.type === "message" && payload.role === "user") {
+        if (typeof payload.content === "string") {
+          text = payload.content;
+        } else if (Array.isArray(payload.content)) {
+          for (const part of payload.content) {
+            if (typeof part?.text === "string") {
+              text = part.text;
+              break;
+            }
+          }
+        }
+      }
+      if (text === null || text.trimStart().startsWith("<")) continue;
+      const task = oneLine(text);
+      if (task !== null) return task;
+    } catch {
+      /* skip */
+    }
+  }
+  return null;
+}
+
+/** Lifecycle records survive GUI detach, unlike a turn's one-time OSC progress report. */
+export function codexActivityFromLines(lines: readonly string[]): SessionActivity | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!/"type"\s*:\s*"(?:task_started|task_complete|turn_aborted)"/.test(lines[index])) continue;
+    try {
+      const node = JSON.parse(lines[index]);
+      if (node?.type !== "event_msg") continue;
+      const payload = node.payload;
+      const kind =
+        payload?.type === "task_started"
+          ? "working"
+          : payload?.type === "task_complete"
+            ? "completed"
+            : payload?.type === "turn_aborted"
+              ? "interrupted"
+              : null;
+      const observedAt = Date.parse(node.timestamp);
+      if (
+        kind &&
+        typeof payload.turn_id === "string" &&
+        payload.turn_id &&
+        Number.isFinite(observedAt)
+      ) {
+        return { kind, turnId: payload.turn_id, observedAt };
+      }
+    } catch {
+      /* Partial records cannot establish a lifecycle state. */
+    }
+  }
+  return null;
+}
+
+const lifecycleCache = new Map<
+  string,
+  {
+    identity: string;
+    size: number;
+    mtime: number;
+    activity: SessionActivity | null;
+  }
+>();
+
+/** Long turns can push their start beyond the message tail. Scan once, then only new bytes. */
+function readSessionActivity(
+  sourcePath: string,
+  parse: (lines: readonly string[]) => SessionActivity | null,
+): SessionActivity | null {
+  try {
+    const stat = lstatSync(sourcePath);
+    if (!stat.isFile()) return null;
+    const identity = `${stat.dev}:${stat.ino}`;
+    const cached = lifecycleCache.get(sourcePath);
+    const previous =
+      cached?.identity === identity &&
+      cached.size <= stat.size &&
+      (cached.size !== stat.size || cached.mtime === stat.mtimeMs)
+        ? cached
+        : undefined;
+    if (previous?.size === stat.size) return previous.activity;
+    const needed = previous ? stat.size - previous.size + TAIL_WINDOW_BYTES : stat.size;
+    let activity = previous?.activity ?? null;
+    for (const size of [
+      TAIL_WINDOW_BYTES,
+      256 * 1024,
+      1024 * 1024,
+      4 * 1024 * 1024,
+      16 * 1024 * 1024,
+    ]) {
+      const bytes = tailBytes(sourcePath, size);
+      if (bytes === null) return null;
+      const found = parse(dropPartialFirstLine(bytes));
+      if (found) {
+        activity = found;
+        break;
+      }
+      if (size >= needed) break;
+    }
+    lifecycleCache.set(sourcePath, { identity, size: stat.size, mtime: stat.mtimeMs, activity });
+    if (lifecycleCache.size > 128) lifecycleCache.delete(lifecycleCache.keys().next().value!);
+    return activity;
+  } catch {
+    return null;
+  }
+}
+
+/** Newest user-authored Claude prompt, excluding tool results and context blocks. */
+export function claudeTaskFromLines(lines: readonly string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const node = JSON.parse(lines[i]);
+      if (node?.type !== "user") continue;
+      const content = node.message?.content;
+      let text: string | null = typeof content === "string" ? content : null;
+      if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part?.type === "text" && typeof part.text === "string") {
+            text = part.text;
+            break;
+          }
+        }
+      }
+      if (text === null || text.trimStart().startsWith("<")) continue;
+      const task = oneLine(text);
+      if (task !== null) return task;
     } catch {
       /* skip */
     }
@@ -158,13 +316,16 @@ export function codexModelFromLines(lines: readonly string[]): string | null {
   return null;
 }
 
-/** Lines in, one clipped line out. */
-type TailParser = (lines: readonly string[]) => string | null;
+/** Lines in, one clipped line out; assistant readers can select the last visible line. */
+type TailParser = (lines: readonly string[], lastLine?: boolean) => string | null;
 
-/** A tail read's two halves: the sentence, and the model that said it. */
+/** One transcript read: latest assistant sentence, model and user-authored task. */
 interface TailOutcome {
   readonly tail: string | null;
   readonly model: string | null;
+  readonly task: string | null;
+  readonly lastLine?: string | null;
+  readonly activity?: SessionActivity | null;
 }
 
 /**
@@ -176,11 +337,16 @@ interface TailOutcome {
 type TailReader = (best: CandidateSession, home: string) => TailOutcome;
 
 /** The Claude/Codex shape: re-open the file the id came from, read its end. */
-function fromTranscript(parseTail: TailParser, parseModel: TailParser): TailReader {
+function fromTranscript(
+  parseTail: TailParser,
+  parseModel: TailParser,
+  parseTask: TailParser,
+  parseActivity?: (lines: readonly string[]) => SessionActivity | null,
+): TailReader {
   return (best) =>
     best.sourcePath === undefined
-      ? { tail: null, model: null }
-      : readGrowingTail(best.sourcePath, parseTail, parseModel);
+      ? { tail: null, model: null, task: null }
+      : readGrowingTail(best.sourcePath, parseTail, parseModel, parseTask, parseActivity);
 }
 
 /**
@@ -202,24 +368,32 @@ function readGrowingTail(
   sourcePath: string,
   parseTail: TailParser,
   parseModel: TailParser,
+  parseTask: TailParser,
+  parseActivity?: (lines: readonly string[]) => SessionActivity | null,
 ): TailOutcome {
   let model: string | null = null;
+  let task: string | null = null;
+  let tail: string | null = null;
+  let lastLine: string | null = null;
+  const activity = parseActivity ? readSessionActivity(sourcePath, parseActivity) : null;
   for (const window of TAIL_WINDOW_STEPS) {
     const bytes = tailBytes(sourcePath, window);
     if (bytes === null) {
-      return { tail: null, model };
+      return { tail, model, task, lastLine, activity };
     }
     const lines = dropPartialFirstLine(bytes);
     // A larger window's lines are a strict superset of a smaller one's (both
     // are read from the same end of the file), so re-running the model walk
     // here can only find as much or more than the previous step did.
     model = parseModel(lines);
-    const tail = parseTail(lines);
-    if (tail !== null) {
-      return { tail, model };
+    task = parseTask(lines) ?? task;
+    tail = parseTail(lines) ?? tail;
+    lastLine = parseTail(lines, true) ?? lastLine;
+    if (tail !== null && task !== null) {
+      return { tail, model, task, lastLine, activity };
     }
   }
-  return { tail: null, model };
+  return { tail, model, task, lastLine, activity };
 }
 
 /**
@@ -248,11 +422,16 @@ const TAIL_SOURCES: Record<
 > = {
   claude: {
     candidates: claude.candidates,
-    read: fromTranscript(claudeTailFromLines, claudeModelFromLines),
+    read: fromTranscript(claudeTailFromLines, claudeModelFromLines, claudeTaskFromLines),
   },
   codex: {
     candidates: codex.candidates,
-    read: fromTranscript(codexTailFromLines, codexModelFromLines),
+    read: fromTranscript(
+      codexTailFromLines,
+      codexModelFromLines,
+      codexTaskFromLines,
+      codexActivityFromLines,
+    ),
   },
   opencode: {
     candidates: opencode.candidates,
@@ -267,6 +446,7 @@ const TAIL_SOURCES: Record<
       return {
         tail: text === null ? null : oneLine(text),
         model: opencodeDb.sessionModel(home, best.id),
+        task: null,
       };
     },
   },
@@ -297,6 +477,10 @@ export interface SessionTailAnswer {
   readonly tail: string | null;
   /** The model the newest recorded turn ran on, or null when the transcript names none. */
   readonly model: string | null;
+  /** The newest user-authored prompt; absent when this agent exposes none. */
+  readonly task?: string;
+  readonly lastLine?: string;
+  readonly activity?: SessionActivity;
 }
 
 /**
@@ -406,7 +590,16 @@ export function resolveSessionTails(
     // null tail is what lets the caller keep the pairing while it waits.
     try {
       const outcome = source.read(best, home);
-      return { id: best.id, tail: outcome.tail, model: outcome.model };
+      return {
+        id: best.id,
+        tail: outcome.tail,
+        model: outcome.model,
+        ...(outcome.task === null ? {} : { task: outcome.task }),
+        ...(outcome.lastLine && outcome.lastLine !== outcome.tail
+          ? { lastLine: outcome.lastLine }
+          : {}),
+        ...(outcome.activity ? { activity: outcome.activity } : {}),
+      };
     } catch {
       return { id: best.id, tail: null, model: null };
     }

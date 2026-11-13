@@ -39,7 +39,7 @@ describe("resumeSession", () => {
     const d = deps();
     await resumeSession(entry({ agent: "codex", sessionId: "abc123" }), d);
     expect(vi.mocked(d.materialize).mock.calls[0][0].paneCommands).toEqual([
-      "codex resume abc123 -c tui.animations=false",
+      "cli-codex resume abc123 -c tui.animations=false",
     ]);
   });
 
@@ -59,3 +59,47 @@ describe("resumeSession", () => {
     expect(d.materialize).not.toHaveBeenCalled();
   });
 });
+
+it.each(["codex", "agy"] as const)(
+  "resumes manager %s with its exact account in a new tab",
+  async (agent) => {
+    const d = deps();
+    const row = entry({
+      agent,
+      sessionId: "session-123",
+      manager: {
+        account: agent === "codex" ? "codex2" : "acc5",
+        isClient: false,
+        workspaceExists: true,
+        running: false,
+      },
+    });
+    await expect(resumeSession(row, d)).resolves.toBe(true);
+    expect(d.materialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        layout: null,
+        cwds: [row.cwd],
+        paneCommands: [`cli resume session-123 --acc ${row.manager!.account}`],
+      }),
+    );
+  },
+);
+
+it.each([{ isClient: true }, { workspaceExists: false }, { account: "acc1;echo bad" }])(
+  "refuses unsafe or unavailable manager sessions %o",
+  async (override) => {
+    const d = deps();
+    const row = entry({
+      agent: "agy",
+      manager: {
+        account: "acc1",
+        isClient: false,
+        workspaceExists: true,
+        running: false,
+        ...override,
+      },
+    });
+    await expect(resumeSession(row, d)).resolves.toBe(false);
+    expect(d.materialize).not.toHaveBeenCalled();
+  },
+);

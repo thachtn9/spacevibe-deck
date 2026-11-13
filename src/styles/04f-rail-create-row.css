@@ -36,6 +36,11 @@
     color var(--duration) var(--ease);
 }
 
+.rail-create[data-variant="row"][data-folder-only="true"] .rail-create__button {
+  flex: none;
+  padding-inline: 10px;
+}
+
 .rail-create__button > span {
   overflow: hidden;
   text-overflow: ellipsis;

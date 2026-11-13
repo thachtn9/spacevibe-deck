@@ -1,3 +1,5 @@
+import type { PersistentTerminalSnapshot } from "../lib/persistent-terminal";
+import type { RemoteScreen } from "../lib/deck-remote";
 import type { Settings } from "../settings/settings-schema";
 import type { Direction, Edge, SerializedNode } from "../lib/split-tree";
 import type { FocusDirection, PaneRect } from "../lib/pane-geometry";
@@ -9,8 +11,10 @@ import type { AdoptResult } from "./pane-adopt";
 import type { TransferClient } from "./transfer-client";
 
 export interface ManagerCallbacks {
+  onPaneReplaced?(oldId: number, newId: number): void;
   /** A genuine input write reached this pane, excluding terminal protocol replies. */
   onPaneInput?(id: number): void;
+  onPaneInputData?(id: number, data: string): void;
   /** Fired after any structural change (split, close, ratio commit). */
   onLayoutChange(): void;
   /** Fired when a pane requests attention (OSC 9/777 notification or bell). */
@@ -48,6 +52,8 @@ export interface ManagerCallbacks {
 
 /** Optional seams forwarded to PaneLifecycle — production uses the defaults. */
 export interface TerminalManagerDeps {
+  /** Discard input during an agent handoff; never replay it into the replacement. */
+  inputBlocked?: (id: number) => boolean;
   /** Test seam — defaults to real createPane (xterm). */
   createPane?: CreatePaneFn;
   /** Test seam — defaults to the real Tauri transfer client. */
@@ -92,6 +98,7 @@ export const TRANSFER_FALLBACK_ROWS = 24;
 
 /** Optional transaction boundary for the transient agent launcher. */
 export interface PaneCreationOptions {
+  readonly attachedPanes?: readonly (PersistentTerminalSnapshot | null)[];
   readonly focus?: boolean;
   readonly canCommit?: () => boolean;
   readonly cwd?: string;
@@ -119,6 +126,9 @@ export interface TerminalManager {
    */
   show(options?: { focus?: boolean }): void;
   hide(): void;
+  /** Keep ownership while presenting the pane in the window-level pinned layout. */
+  setPanePinned(id: number, pinned: boolean): boolean;
+  fitPane(id: number): void;
   splitActive(dir: Direction): Promise<void>;
   /**
    * Dock a freshly spawned pane on one edge of `targetPaneId` and return its
@@ -214,6 +224,7 @@ export interface TerminalManager {
    * the agent said, which is what the panel is for.
    */
   serializePane(id: number, lines: number): string | null;
+  remoteScreen?(id: number, lines: number): Omit<RemoteScreen, "capturedAtMs" | "alive"> | null;
   /**
    * Whether this pane's PTY is still running (Agent Board spec §7's disabled
    * actions). `pasteIntoPane` and `submitPane` already fail on the same fact;
@@ -243,6 +254,9 @@ export interface TerminalManager {
   paneElement(id: number): HTMLElement | null;
   /** Routed from the tab manager's single pty:output listener; ignores unowned ids. */
   handleOutput(id: number, data: string): void;
+  drainPaneInput(id: number): Promise<void>;
+  /** Reset a stopped TUI's modes and wait until xterm has parsed the reset. */
+  resetPaneForShell(id: number): Promise<void>;
   /** Routed from the tab manager's single pty:exit listener; ignores unowned ids. */
   handleExit(id: number): void;
   updatePaneInfo(infos: readonly PaneProcessInfo[], home: string): void;

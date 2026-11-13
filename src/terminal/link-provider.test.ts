@@ -6,6 +6,12 @@ import { settings } from "../settings/settings-store";
 import { DEFAULT_SETTINGS } from "../settings/settings-schema";
 import { pathOpenRequest, persistError } from "../chrome/events";
 import { initializeDesktopEnvironment, resetDesktopEnvironmentForTests } from "../lib/platform";
+import { openInApp } from "../host/external-apps-host";
+
+vi.mock("../host/external-apps-host", () => ({
+  available: true,
+  openInApp: vi.fn().mockResolvedValue(undefined),
+}));
 
 const CWD = "/repo";
 
@@ -77,6 +83,8 @@ describe("createLinkProvider", () => {
     });
     settings.value = DEFAULT_SETTINGS;
     persistError.value = null;
+    pathOpenRequest.value = null;
+    vi.mocked(openInApp).mockReset().mockResolvedValue(undefined);
   });
 
   it("links a url and opens it in the browser on ⌘+click", async () => {
@@ -118,6 +126,55 @@ describe("createLinkProvider", () => {
     const links = await provide(fakeTerminal("src/foo.ts and src/gone.ts"), client);
 
     expect(links?.map((link) => link.text)).toEqual(["src/foo.ts"]);
+  });
+
+  it("opens the Viewed image folder with Ctrl on Linux, while plain clicks stay in the TUI", async () => {
+    resetDesktopEnvironmentForTests();
+    initializeDesktopEnvironment({ platform: "linux", homeDir: "/home/dev" });
+    const client = createMemoryLinkClient({ files: [`${CWD}/500-last-error.png`] });
+    const links = await provide(fakeTerminal("• Viewed image 500-last-error.png"), client);
+    expect(links?.map((link) => link.text)).toEqual(["500-last-error.png"]);
+    click(links![0], false);
+    expect(openInApp).not.toHaveBeenCalled();
+    click(links![0], false, true);
+    expect(openInApp).toHaveBeenCalledWith({
+      appId: "finder",
+      path: "/repo/500-last-error.png",
+      isDirectory: false,
+      line: 1,
+      column: 1,
+    });
+    expect(pathOpenRequest.value).toBeNull();
+  });
+
+  it("opens ordinary image links in the file manager", async () => {
+    const client = createMemoryLinkClient({ files: [`${CWD}/photo.png`] });
+    const links = await provide(fakeTerminal("See photo.png"), client);
+    click(links![0], true);
+    expect(openInApp).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/repo/photo.png", appId: "finder" }),
+    );
+    expect(pathOpenRequest.value).toBeNull();
+  });
+
+  it("links a hidden-folder image in parenthesized result prose", async () => {
+    const path = ".idc-run/verification/stag-inline-error-retest-20261105/allocation-result.png";
+    const client = createMemoryLinkClient({ files: [`${CWD}/${path}`] });
+    const links = await provide(fakeTerminal(`Ảnh kết quả kiểm tra (${path}).`), client);
+    expect(links?.map((link) => link.text)).toEqual([path]);
+    click(links![0], true);
+    expect(openInApp).toHaveBeenCalledWith(
+      expect.objectContaining({ path: `${CWD}/${path}`, appId: "finder" }),
+    );
+  });
+
+  it("reports a file manager failure", async () => {
+    vi.mocked(openInApp).mockRejectedValueOnce(new Error("Unavailable"));
+    const client = createMemoryLinkClient({ files: [`${CWD}/photo.png`] });
+    const links = await provide(fakeTerminal("Viewed image photo.png"), client);
+    click(links![0], true);
+    await Promise.resolve();
+    expect(persistError.value).toContain("Couldn't open the image folder");
   });
 
   // Since the 2026-08-19 path-open work the provider ROUTES nothing: it raises

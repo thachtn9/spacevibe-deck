@@ -265,6 +265,12 @@
   margin-top: 12px;
 }
 
+.lp-claude-api .text-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
 .lp-agent-group .cfg-group {
   padding: 12px 10px 6px;
   margin: 0 4px;

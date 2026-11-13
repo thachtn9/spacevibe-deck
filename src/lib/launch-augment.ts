@@ -36,7 +36,7 @@ export interface SignalAdapters {
 export interface AugmentContext {
   readonly adapters: SignalAdapters;
   /** POSIX hosts only: the hook script is `sh` + `curl`. */
-  readonly platform: "macos" | "windows" | "unsupported";
+  readonly platform: "macos" | "windows" | "linux" | "unsupported";
   readonly claudeSettingsPath: string | null;
   /** A uuid minted for a fresh Claude launch, or null to leave the id to Claude. */
   readonly sessionId: string | null;

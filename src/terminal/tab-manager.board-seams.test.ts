@@ -215,6 +215,37 @@ describe("a pane in a tab that is not on the stage", () => {
   });
 });
 
+describe("explicit remote input", () => {
+  it("sends through the target pane's write queue while another tab stays selected", async () => {
+    const { tm, pty } = setup({});
+    await tm.materialize({ layout: null, cwds: ["/repo"] });
+    const target = paneAt(0, 0).paneId;
+    await tm.materialize({ layout: null, cwds: ["/other"] });
+    const selected = activeTabIndex.value;
+    const before = pty.writes.length;
+    await expect(tm.sendRemoteInput(target, "continue with tests", () => true)).resolves.toEqual({
+      status: "sent",
+    });
+    expect(pty.writes.slice(before).map((write) => [write.id, write.data])).toEqual([
+      [target, "continue with tests"],
+      [target, "\r"],
+    ]);
+    expect(activeTabIndex.value).toBe(selected);
+    tm.dispose();
+  });
+  it("does not write when the exact remote target is no longer valid", async () => {
+    const { tm, pty } = setup({});
+    await tm.materialize({ layout: null, cwds: ["/repo"] });
+    const target = paneAt(0, 0).paneId;
+    const before = pty.writes.length;
+    await expect(tm.sendRemoteInput(target, "continue", () => false)).rejects.toThrow(
+      "no longer available",
+    );
+    expect(pty.writes.length).toBe(before);
+    tm.dispose();
+  });
+});
+
 describe("acknowledgePane", () => {
   it("clears one pane's attention and syncs the views", async () => {
     // `emitSignal` goes through the real `onAttentionSignal` wiring, and the
@@ -243,25 +274,25 @@ describe("acknowledgePane", () => {
   it("resets the notifier's latch identity, so the next request notifies again", async () => {
     // The ack has to route through `maybeNotify`, the same choke point
     // `onPaneFocus` uses. That function dedupes on the LATCH IDENTITY it
-    // keeps in `lastNotifiedKind`, and only a snapshot of "none" resets it —
-    // so an ack that skipped the call would leave the key at "requested" and
-    // the pane's NEXT request would be dropped as a phase-only re-emit. A
+    // keeps in `lastNotifiedAttention`, and only a snapshot of "none" resets it —
+    // so an ack that skipped the call would leave the key at "error" and
+    // the pane's NEXT error would be dropped as a phase-only re-emit. A
     // Board ack would then silently disable that pane's notifications.
     settings.value = { ...DEFAULT_SETTINGS, agentNotifications: true };
     windowFocus.initialFocused = false; // the notifier is background-only
-    const { tm, emitSignal } = setup({ infos: agentInfos(1) });
+    const { tm, pty } = setup({ infos: agentInfos(1) });
     await tm.materialize({ layout: null, cwds: ["/repo"] });
     await tm.init();
     await flush();
     const target = paneAt(0, 0).paneId;
 
-    emitSignal(target, { kind: "requested", source: "osc-notification" });
+    pty.emitOutput(target, "\x1b]9;4;2\x07");
     await flush();
     expect(vi.mocked(sendAgentNotification).mock.calls.length).toBe(1);
 
     tm.acknowledgePane(target);
     await flush();
-    emitSignal(target, { kind: "requested", source: "osc-notification" });
+    pty.emitOutput(target, "\x1b]9;4;2\x07");
     await flush();
     expect(vi.mocked(sendAgentNotification).mock.calls.length).toBe(2);
 

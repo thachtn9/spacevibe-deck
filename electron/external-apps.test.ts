@@ -2,12 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EXTERNAL_APP_CATALOG, bundlePath, repositoryRoot, resolveTarget } from "./external-apps";
+import {
+  EXTERNAL_APP_CATALOG,
+  bundlePath,
+  repositoryRoot,
+  resolveTarget,
+  openInApp,
+  listExternalApps,
+} from "./external-apps";
 import { EXTERNAL_APPS } from "../src/lib/external-app-catalog";
 
 // These catalog/path tests need no Electron runtime. Its Node entry point can
 // download a binary during import on a cold CI runner, so isolate that boundary.
-vi.mock("electron", () => ({ app: { getPath: () => os.tmpdir() } }));
+const { openPath } = vi.hoisted(() => ({ openPath: vi.fn(async () => "") }));
+vi.mock("electron", () => ({ app: { getPath: () => os.tmpdir() }, shell: { openPath } }));
 
 const temps: string[] = [];
 
@@ -20,6 +28,8 @@ function tempDir(): string {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
+  openPath.mockClear();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -171,5 +181,35 @@ describe("resolveTarget", () => {
     expect(resolveTarget("repository", file, false)).toEqual({
       error: "That file is not inside a git repository.",
     });
+  });
+});
+
+describe.runIf(process.platform === "linux")("Linux folder open actions", () => {
+  it("detects and launches code with the exact folder as one argument", async () => {
+    const root = tempDir();
+    const folder = path.join(root, "project with spaces;literal");
+    fs.mkdirSync(folder);
+    const argsFile = path.join(root, "args.json");
+    fs.writeFileSync(
+      path.join(root, "code"),
+      `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(argsFile)},JSON.stringify(process.argv.slice(2)))\n`,
+      { mode: 0o755 },
+    );
+    vi.stubEnv("PATH", root);
+    expect((await listExternalApps()).map((app) => app.id)).toEqual(["vscode", "finder"]);
+    await openInApp({ appId: "vscode", path: folder, isDirectory: true });
+    expect(JSON.parse(fs.readFileSync(argsFile, "utf8"))).toEqual(["--new-window", folder]);
+  });
+  it("opens the directory in the system file manager and reports errors", async () => {
+    const root = tempDir();
+    await openInApp({ appId: "finder", path: root, isDirectory: true });
+    expect(openPath).toHaveBeenCalledExactlyOnceWith(root);
+    openPath.mockResolvedValueOnce("No file manager available");
+    await expect(openInApp({ appId: "finder", path: root, isDirectory: true })).rejects.toThrow(
+      "No file manager",
+    );
+    expect(() => openInApp({ appId: "finder", path: "-bad", isDirectory: true })).toThrow(
+      "absolute",
+    );
   });
 });

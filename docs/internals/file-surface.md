@@ -2,7 +2,24 @@
 
 > For maintainers. Using Deck? See [docs/user/](../user/).
 
-Documents opened from the Explorer share its dock; the browser occupies the stage.
+Electron View code opens a maximized auxiliary window with a read-only Monaco editor, file
+tree and tabs. A canonical folder identifies each window; repeated opens focus that window
+and terminal links deliver an exact file/line request. The alternate renderer entry never
+mounts App or TabManager, and its restricted preload refuses terminal and filesystem-write
+channels. Viewer windows stay outside the terminal coordinator, journal and close census;
+closing one releases its file watches without touching Deck's terminals. The existing file
+controller and guarded reads are reused; the legacy editable Explorer remains dormant.
+On Linux Wayland a dedicated XWayland helper places the viewer on a display other than the
+launch pointer's display, falling back to the current display on single-monitor systems.
+Wayland rejects programmatic window positioning and hides global window coordinates, so the
+GUI's native BrowserWindow cannot implement this. The helper relays only the viewer IPC
+allowlist through bounded pipe messages; the owning GUI runs the existing filesystem guards,
+Git reads and shared preference store. Closing the GUI connection ends the helper. Other
+desktop backends place native viewer windows using the initiating window's display bounds.
+Quick file lookup traverses only
+on demand, excludes the tree's hidden/generated entries and out-of-root links, cancels
+when dismissed, and stops at 1,500 directories or 20,000 files. It is not a content search.
+Documents opened from the legacy Explorer share its dock; the browser occupies the stage.
 Path routing turns a path an agent printed into either an in-Deck document or an external
 open. All of it is Electron only: the file channels, the `WebContentsView` and the external
 app catalog have no Tauri counterpart, and `open_editor` is the one path Tauri keeps.
@@ -91,8 +108,34 @@ app catalog have no Tauri counterpart, and `open_editor` is the one path Tauri k
 
 ## Changes list
 
-The Explorer's second view shows what the checkout changed against `HEAD`. It is Electron
-only: `git_changes`, `git_changes_watch` and `git:changed` have no Tauri counterpart, and the
+Changes & commits and Files remain retired from the right dock. Saved explorer selections
+resolve to Quota, and the explorer action is excluded from keyboard dispatch, Electron menus
+and shortcut settings. View code's Source control tab mounts the Git review groups beside
+a read-only diff. Switching to Files unmounts review reads and polling. Recent history is
+bounded to 100 commits and remains available when no target is selected or no commit is ahead.
+The repository header's X hides that repository and clears a selected diff from it. Hidden
+paths persist per opened root in workspaces.json and filter groups before reads or polling
+start; Refresh does not restore them. Show hidden folders clears that preference. This
+changes the review list only and never removes a folder from disk or from Deck's rail.
+The separate Not in target filter compares commit ancestry; the target and upstream can be
+different branches, so publication badges do not imply a merge. In-workspace file links
+select View code's Files tab; other paths keep external routing. Retained document state
+alone cannot take stage focus.
+For a parent folder without Git, bounded discovery groups its child repositories and linked
+worktrees separately. Each checkout remembers its target in `workspaces.json`; the default is
+`origin/dev`, then `dev`, with an explicit selection required if neither exists. Commit
+reachability against that target answers “not in target”; reachability against the checkout's
+upstream answers “unpushed.” No upstream means unknown publication, never an invented remote.
+Squash merges retain different commit identities, so this is not a PR merge-status service.
+
+Remote refs remain local snapshots until the user presses Fetch. Refresh, focus, visible
+30-second polling and agent turn completion only read Git. Reads are limited to two concurrent
+repository operations, and offscreen groups pause polling. Commit files compare against the
+first parent (or the empty tree for a root commit); file selection opens a bounded, read-only
+unified diff. Switching workspaces retires the previous request's results.
+
+The legacy Explorer's Changes view remains available through the existing Electron channels:
+`git_changes`, `git_changes_watch` and `git:changed` have no Tauri counterpart, and the
 switch is omitted where [`git-changes-host.ts`](../../src/host/git-changes-host.ts) says the
 host cannot answer.
 

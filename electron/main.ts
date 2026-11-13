@@ -1,3 +1,8 @@
+import { registerTextEditor } from "./text-editor";
+import { registerWebReview } from "./web-review/register";
+import { PersistentPtyManager } from "./pty/persistent-client";
+import { registerCodeViewerWindows } from "./code-viewer-windows";
+import { codeViewerServices } from "./code-viewer-services";
 // First, before any other module loads: an import-time throw in one of them
 // is exactly the crash this exists to report, and the renderer's protocol
 // must be registered before `ready`.
@@ -27,6 +32,9 @@ import { createCodexIntegration } from "./agent-hooks/codex-integration";
  *    touches a session.
  */
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { registerDesktopAgents } from "./ipc/register-desktop-agents";
+import { registerRemoteAccess } from "./ipc/register-remote";
 import {
   app,
   BrowserWindow,
@@ -40,7 +48,7 @@ import {
 import { CHANNELS, EVENTS } from "./ipc/channels";
 import { BrowserPanels } from "./browser/view";
 import { WindowCoordinator, type AdoptionPayload } from "./coordinator";
-import { PtyManager } from "./pty/manager";
+import { PtyManager, type PtyManagerDeps } from "./pty/manager";
 import { validateResizeOptions, validateSpawnOptions } from "./pty/spawn";
 import { ptyInfo, type PtyInfo } from "./pty/info";
 import { validateAgentProcessMatchers } from "./platform/classify";
@@ -67,6 +75,7 @@ import { registerAgentSignals } from "./ipc/register-agent-signals";
 import { createHookServer } from "./agent-hooks/hook-server";
 import { createOpencodeClients } from "./agent-hooks/opencode-client";
 import { createClaudeIntegration } from "./agent-hooks/claude-integration";
+import { ACTIVE_AGENTS } from "../src/lib/agents/agent-registry";
 
 // __dirname is `dist-electron/electron`, so the Vite output is two levels up.
 const RENDERER_DIR = path.join(__dirname, "..", "..", "dist");
@@ -93,6 +102,7 @@ const MONACO_SMOKE = process.env.DECK_MONACO_SMOKE === "1";
 const MONACO_SMOKE_RENDERER_DIR = path.join(__dirname, "..", "..", "dist-monaco-smoke-renderer");
 
 const windows = new Map<string, BrowserWindow>();
+const codeViewerWindows = new Map<string, BrowserWindow>();
 const registry = new WindowRegistry();
 const quitFlight = new QuitFlight();
 // Per-window, separate from the app-wide quit prompt: two windows may prompt
@@ -119,6 +129,27 @@ function emitTo(label: string, event: string, payload: unknown): boolean {
 }
 
 const coordinator = new WindowCoordinator(emitTo);
+const desktopAgents = registerDesktopAgents({
+  userData: app.getPath("userData"),
+  rendererUrl:
+    DEV_SERVER_URL !== undefined
+      ? new URL("desktop-agents.html", DEV_SERVER_URL).href
+      : pathToFileURL(path.join(RENDERER_DIR, "desktop-agents.html")).href,
+  labelOf,
+  assertOwner: (paneId, label) => coordinator.assertAccess(paneId, label),
+  windowFor: (label) => windows.get(label),
+  emit: emitTo,
+});
+app.on("will-quit", () => desktopAgents.dispose());
+
+const remoteAccess = registerRemoteAccess({
+  userData: app.getPath("userData"),
+  home: app.getPath("home"),
+  labelOf,
+  assertOwner: (paneId, label) => coordinator.assertAccess(paneId, label),
+  preferredWindow: () => [...windows].find(([, window]) => window.isFocused())?.[0],
+  emit: emitTo,
+});
 
 /**
  * Unsaved editor buffers, per window (file-explorer spec §6).
@@ -133,8 +164,33 @@ const dirtyFiles = new MainDirtyRegistry();
 
 /** `fs.watch` scopes, per window. Replaced wholesale on every renderer call. */
 const watchers = createWatchRegistry((label, event) => {
-  emitTo(label, EVENTS.fileChanged, event);
+  if (codeViewers.sendEvent(label, EVENTS.fileChanged, event)) return;
+  const viewer = codeViewerWindows.get(label);
+  if (viewer && !viewer.isDestroyed()) viewer.webContents.send(EVENTS.fileChanged, event);
+  else emitTo(label, EVENTS.fileChanged, event);
 });
+
+const textEditor = registerTextEditor({
+  preload: PRELOAD,
+  rendererDir: RENDERER_DIR,
+  devServerUrl: DEV_SERVER_URL,
+  isDeckWindow: (event) => [...windows.values()].some((window) => window.webContents.id === event.sender.id),
+});
+
+const codeViewers = registerCodeViewerWindows({
+  windows: codeViewerWindows,
+  preload: PRELOAD,
+  renderer: path.join(RENDERER_DIR, "index.html"),
+  devServerUrl: DEV_SERVER_URL,
+  isDeckWindow: (event) =>
+    [...windows.values()].some((window) => window.webContents.id === event.sender.id),
+  invoke: codeViewerServices(stores, watchers),
+  onClosed: (label) => {
+    watchers.forgetWindow(label);
+    if (windows.size === 0 && !codeViewers.hasWindows()) app.emit("window-all-closed");
+  },
+});
+app.on("will-quit", () => codeViewers.dispose());
 
 const browserPanels = new BrowserPanels({
   emit: emitTo,
@@ -167,7 +223,7 @@ const opencodeClients = createOpencodeClients({
 const claudeIntegration = createClaudeIntegration({ userData: app.getPath("userData") });
 const codexIntegration = createCodexIntegration({ userData: app.getPath("userData") });
 
-const pty = new PtyManager({
+const ptyDeps: PtyManagerDeps = {
   emitToOwner: (paneId, event, payload) => coordinator.deliver(paneId, event, payload),
   register: (paneId, label) => coordinator.register(paneId, label),
   unregister: (paneId) => {
@@ -180,7 +236,47 @@ const pty = new PtyManager({
   hookPort: () => hookServer.port(),
   hookScript: () => claudeIntegration.scriptPath(),
   codexHookScript: () => codexIntegration.scriptPath(),
+};
+const pty =
+  process.platform === "linux"
+    ? new PersistentPtyManager(ptyDeps, app.getPath("userData"))
+    : new PtyManager(ptyDeps);
+const webReview = registerWebReview({
+  userData: app.getPath("userData"),
+  preload: PRELOAD,
+  pagePreload: path.join(__dirname, "web-review-page-preload.cjs"),
+  rendererUrl: DEV_SERVER_URL
+    ? new URL("web-review.html", DEV_SERVER_URL).href
+    : pathToFileURL(path.join(RENDERER_DIR, "web-review.html")).href,
+  labelOf,
+  assertOwner: (id, label) => coordinator.assertAccess(id, label),
+  emit: emitTo,
+  verify: async (target, label) => {
+    coordinator.assertAccess(target.paneId, label);
+    if (pty instanceof PersistentPtyManager && pty.reference(target.paneId) !== target.terminalRef)
+      return false;
+    const [info] = await ptyInfo(await pty.snapshots([target.paneId]));
+    coordinator.assertAccess(target.paneId, label);
+    return (
+      info?.kind === "agent" &&
+      info.agent === target.agent &&
+      info.processId === target.processId &&
+      (target.agent === "codex" ? info.codexSessionId : info.agySessionId) === target.sessionId
+    );
+  },
+  write: (label, id, data) => pty.write(label, id, data),
 });
+app.on("will-quit", () => webReview.dispose());
+
+function releaseOnClose(id: number): void {
+  if (pty instanceof PersistentPtyManager) void pty.detach(id).catch(console.warn);
+  else pty.terminate(id);
+}
+async function finishTerminals(): Promise<void> {
+  await webReview.flush();
+  if (pty instanceof PersistentPtyManager) pty.disconnect();
+  else await pty.killAll();
+}
 
 /** The label of the window that sent an IPC message. Every pane command needs
  * it, because ownership is per window. */
@@ -233,11 +329,21 @@ function createWindow(label: string): BrowserWindow {
   // does not run on a destroyed webview, so without this the accelerators stay
   // stripped for every window until relaunch.
   window.webContents.on("render-process-gone", () => {
+    webReview.forgetWindow(label);
+    desktopAgents.forgetWindow(label);
+    remoteAccess.forgetWindow(label);
     menuState.setRecording(senderId, false);
     // The window survives a dead renderer, so `closed` may never fire — but
     // the renderer that claimed the update-check flight is gone and will never
     // release it.
     updater.forgetWindow(label);
+  });
+  window.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
+    if (mainFrame && !inPlace) {
+      desktopAgents.forgetWindow(label);
+      webReview.forgetWindow(label);
+      remoteAccess.forgetWindow(label);
+    }
   });
 
   window.on("focus", () => {
@@ -265,7 +371,7 @@ function createWindow(label: string): BrowserWindow {
     // be a transfer's source, and skipping the abort strands the pane.
     coordinator.abortInvolving(label);
     for (const paneId of coordinator.takePendingOrphans()) {
-      pty.terminate(paneId);
+      releaseOnClose(paneId);
     }
 
     // ALWAYS route the close through the renderer, even with nothing busy.
@@ -306,6 +412,9 @@ function createWindow(label: string): BrowserWindow {
   });
 
   window.on("closed", () => {
+    webReview.forgetWindow(label);
+    desktopAgents.forgetWindow(label);
+    remoteAccess.forgetWindow(label);
     // Before `windows.delete`: closing the panel wants the window to still be
     // resolvable so the native view can be detached from its content view.
     browserPanels.close(label);
@@ -329,7 +438,7 @@ function createWindow(label: string): BrowserWindow {
     // Crash path: no close event fired and no busy guard ran, so the panes this
     // window still owned would otherwise outlive it with nobody reading them.
     for (const paneId of coordinator.handleWindowDestroyed(label)) {
-      pty.terminate(paneId);
+      releaseOnClose(paneId);
     }
     menuState.rebuildMenu();
   });
@@ -364,7 +473,8 @@ function createWindow(label: string): BrowserWindow {
  */
 async function censusOrDeny(paneIds: readonly number[]): Promise<PtyInfo[] | null> {
   try {
-    return await ptyInfo(pty.snapshots(paneIds));
+    if (pty instanceof PersistentPtyManager) return [];
+    return await ptyInfo(await pty.snapshots(paneIds));
   } catch (error) {
     console.error("Deck: cannot read the process table; refusing to act", error);
     return null;
@@ -387,13 +497,15 @@ ipcMain.handle(CHANNELS.resizePty, (event, payload: unknown) => {
   return pty.resize(labelOf(event), id, cols, rows);
 });
 ipcMain.handle(CHANNELS.killPty, (event, { id }) => pty.kill(labelOf(event), id));
-ipcMain.handle(CHANNELS.ptyKillForeground, (event, { id }) =>
-  pty.killForeground(labelOf(event), id),
+ipcMain.handle(CHANNELS.ptyKillForeground, (event, { id, processId, sessionId, accountId }) =>
+  pty instanceof PersistentPtyManager && processId !== undefined
+    ? pty.killForeground(labelOf(event), id, { processId, sessionId, accountId })
+    : pty.killForeground(labelOf(event), id),
 );
-ipcMain.handle(CHANNELS.ptyInfo, (_event, { ids, agents, waitForCwd }) =>
-  ptyInfo(pty.snapshots(ids), validateAgentProcessMatchers(agents), waitForCwd !== false),
+ipcMain.handle(CHANNELS.ptyInfo, async (_event, { ids, agents, waitForCwd }) =>
+  ptyInfo(await pty.snapshots(ids), validateAgentProcessMatchers(agents), waitForCwd !== false),
 );
-ipcMain.handle(CHANNELS.ptyCwds, (_event, payload: unknown) => {
+ipcMain.handle(CHANNELS.ptyCwds, async (_event, payload: unknown) => {
   if (
     typeof payload !== "object" ||
     payload === null ||
@@ -403,7 +515,35 @@ ipcMain.handle(CHANNELS.ptyCwds, (_event, payload: unknown) => {
   ) {
     throw new TypeError("pty_cwds requires an array of positive integer ids");
   }
-  return pty.snapshots(payload.ids).map(({ id, cwd }) => ({ id, cwd }));
+  return (await pty.snapshots(payload.ids)).map(({ id, cwd }) => ({ id, cwd }));
+});
+
+ipcMain.handle(CHANNELS.ptyPersistent, async (event, payload) => {
+  if (!(pty instanceof PersistentPtyManager)) return null;
+  const label = labelOf(event);
+  const { action, id, reference, metadata, command } = payload;
+  switch (action) {
+    case "reference":
+      coordinator.assertAccess(id, label);
+      return pty.reference(id);
+    case "attach":
+      return pty.attach(label, reference);
+    case "recovery":
+      return pty.request("recovery");
+    case "ready":
+      return pty.ownedRequest(label, id, "ready");
+    case "prepareLaunch":
+      return pty.ownedRequest(label, id, "prepareLaunch", { command });
+    case "prepareAccountSwitch":
+      return pty.ownedRequest(label, id, "prepareAccountSwitch", { command });
+    case "metadata":
+      return pty.ownedRequest(label, id, "metadata", { metadata });
+    case "detach":
+      coordinator.assertAccess(id, label);
+      return pty.detach(id);
+    default:
+      throw new Error("Invalid persistent terminal action");
+  }
 });
 
 // -------------------------------------------------------------- Services
@@ -431,7 +571,15 @@ registerChanges();
 registerThemes();
 
 // ---------------------------------------------------------- File explorer
-registerExplorer({ labelOf, watchers, dirtyFiles });
+registerExplorer({
+  labelOf: (event) => {
+    for (const [label, window] of codeViewerWindows)
+      if (window.webContents.id === event.sender.id) return label;
+    return labelOf(event);
+  },
+  watchers,
+  dirtyFiles,
+});
 
 registerSettingsIpc({
   stores,
@@ -455,8 +603,7 @@ ipcMain.handle(CHANNELS.confirmQuit, (_event, { requestId }) => {
   if (!quitFlight.finish(requestId)) {
     return;
   }
-  void pty
-    .killAll()
+  void finishTerminals()
     // Best-effort final snapshot before the stores flush, so the buffer's
     // sent-state reaches disk. `flushOnQuit` never throws and is bounded by
     // the POST timeout, so quit cannot hang on a dead Worker.
@@ -467,7 +614,7 @@ ipcMain.handle(CHANNELS.confirmQuit, (_event, { requestId }) => {
 ipcMain.handle(CHANNELS.cancelQuit, (_event, { requestId }) => {
   quitFlight.finish(requestId);
 });
-ipcMain.handle(CHANNELS.confirmCloseWindow, (event, { requestId }) => {
+ipcMain.handle(CHANNELS.confirmCloseWindow, async (event, { requestId }) => {
   const label = labelOf(event);
   // Checked against the WINDOW as well as the id: close and quit ids come from
   // different counters now, and a reply from an earlier close attempt must not
@@ -476,7 +623,8 @@ ipcMain.handle(CHANNELS.confirmCloseWindow, (event, { requestId }) => {
     return;
   }
   for (const paneId of coordinator.panesForWindow(label)) {
-    pty.terminate(paneId);
+    if (pty instanceof PersistentPtyManager) await pty.detach(paneId);
+    else pty.terminate(paneId);
   }
   windows.get(label)?.destroy();
 });
@@ -555,7 +703,7 @@ const updater = registerUpdater({
   // handler entirely, so without this the PTYs would die with the process and
   // the debounced stores would never reach disk.
   prepareForInstall: async () => {
-    await pty.killAll();
+    await finishTerminals();
     // Same best-effort final snapshot the quit chain sends; before the store
     // flush so the buffer's sent-state reaches disk with everything else.
     await telemetry.flushOnQuit();
@@ -591,15 +739,25 @@ if (!app.requestSingleInstanceLock()) {
   // here, so there is nothing to tear down.
   app.quit();
 }
-app.on("second-instance", () => {
+app.on("second-instance", (_event, _argv, _cwd, additionalData: unknown) => {
+  if (
+    additionalData !== null &&
+    typeof additionalData === "object" &&
+    "desktopAgentKey" in additionalData
+  ) {
+    desktopAgents.activate(additionalData.desktopAgentKey);
+    return;
+  }
   // The user asked for Deck and Windows gave them the running copy: surface it
   // rather than doing nothing, which reads as a failed launch.
-  const existing = BrowserWindow.getAllWindows()[0];
+  const existing = [...windows.values()][0];
   if (existing !== undefined) {
     if (existing.isMinimized()) {
       existing.restore();
     }
     existing.focus();
+  } else if (codeViewers.hasWindows() || textEditor.hasWindow()) {
+    createWindow(MAIN_LABEL);
   }
 });
 
@@ -615,6 +773,31 @@ app.whenReady().then(async () => {
   void stores
     .open("settings.json")
     .then(async (store) => {
+      // Apply this local build's requested agent selection once. Keep it in
+      // the host's store so an already-running window cannot overwrite an
+      // external settings-file edit when it quits.
+      if (process.platform === "linux" && store.get("managedCliProfileVersion") !== 1) {
+        if (!store.requireObjectValue("settings")) throw new Error("Invalid stored settings");
+        const current = (store.get("settings") ?? {}) as Record<string, unknown>;
+        store.set("settings", {
+          ...current,
+          disabledAgents: ACTIVE_AGENTS.filter((agent) => !["agy", "codex"].includes(agent.id)).map(
+            (agent) => agent.id,
+          ),
+          quickAgentIds: ["codex", "agy"],
+        });
+        store.set("managedCliProfileVersion", 1);
+        await store.save();
+      }
+      // Restore the requested animation once now that detached CLI sessions
+      // receive resize notifications. Later preference changes stay intact.
+      if (process.platform === "linux" && store.get("detachedCliResizeVersion") !== 1) {
+        if (!store.requireObjectValue("settings")) throw new Error("Invalid stored settings");
+        const current = (store.get("settings") ?? {}) as Record<string, unknown>;
+        store.set("settings", { ...current, focusExpand: true });
+        store.set("detachedCliResizeVersion", 1);
+        await store.save();
+      }
       const settings = store.get("settings");
       menuState.adoptMenuKeymap(settings);
       await Promise.all([claudeIntegration.sync(settings), codexIntegration.sync(settings)]);
@@ -630,6 +813,16 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
+  if (webReview.hasWindow()) {
+    event.preventDefault();
+    void webReview.closeForQuit().then(() => app.quit()).catch(error => console.error("Web Review drafts could not be flushed", error));
+    return;
+  }
+  if (textEditor.hasWindow()) {
+    event.preventDefault();
+    textEditor.closeForQuit();
+    return;
+  }
   if (updater.isInstalling()) {
     // Same reason as the window-close guard above: this quit IS the install,
     // and it was already confirmed in the renderer.
@@ -643,6 +836,7 @@ app.on("before-quit", (event) => {
   // default unconditionally — so the two paths are fixed differently on
   // purpose.
   if (paneIds.length === 0 && !dirtyFiles.anyDirty()) {
+    codeViewers.dispose();
     return;
   }
   // No window can answer, so there is nobody to prompt. Rust's `exit_policy`
@@ -650,7 +844,7 @@ app.on("before-quit", (event) => {
   // app that can only be force-quit.
   const label = focusedLabel();
   if (label === null || !windows.has(label)) {
-    void pty.killAll().finally(() => app.exit(0));
+    void finishTerminals().finally(() => app.exit(0));
     event.preventDefault();
     return;
   }
@@ -680,6 +874,13 @@ app.on("before-quit", (event) => {
 // The last window closing ends the app on Windows/Linux; on macOS Deck follows
 // the platform convention only when the user actually quits.
 app.on("window-all-closed", () => {
+  if (codeViewers.hasWindows() || textEditor.hasWindow()) return;
+  if (pty instanceof PersistentPtyManager) {
+    void finishTerminals()
+      .then(() => stores.saveAll())
+      .finally(() => app.exit(0));
+    return;
+  }
   if (process.platform !== "darwin") {
     app.quit();
   }

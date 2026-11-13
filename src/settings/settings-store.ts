@@ -226,9 +226,9 @@ export function toggleDock(): void {
  * The boolean is for the caller's focus handling: closing the dock should hand
  * focus back to the pane, and revealing a tab should not.
  */
-export function revealDockTab(tab: DockTab): boolean {
+export function revealDockTab(tab: DockTab, visibleTab: DockTab = settings.value.dockTab): boolean {
   const current = settings.value;
-  const closing = current.dockOpen && current.dockTab === tab;
+  const closing = current.dockOpen && visibleTab === tab;
   updateSettings({ dockOpen: !closing, dockTab: tab });
   return closing;
 }
@@ -236,11 +236,8 @@ export function revealDockTab(tab: DockTab): boolean {
 /**
  * Open the dock on one tab, and never close it.
  *
- * The rail's `Tools` rows are shortcuts that OPEN (DL §28): pressing the row of
- * a tab already on screen does nothing, because putting the column away is the
- * dock toggle's job, not a shortcut's. Chords keep `revealDockTab`'s
- * press-again-to-put-away behaviour — that is the difference between a chord
- * and a launcher, and it is deliberate rather than an inconsistency.
+ * Programmatic launchers use this when they require visibility. Dock icons and
+ * chords use `revealDockTab` so a second press closes the selected surface.
  */
 export function openDockTab(tab: DockTab): void {
   updateSettings({ dockOpen: true, dockTab: tab });

@@ -1,4 +1,6 @@
+import { unpinnedTree, setUnpinnedRatio } from "./pinned-pane-layout";
 import { settings } from "../settings/settings-store";
+import { AGENT_EXIT_RESET } from "./pane-shell-reset";
 import {
   countLeaves,
   dockNewPane,
@@ -76,6 +78,7 @@ export function createTerminalManager(
   // (`selectTab`, board card selection, closing the active tab) goes through
   // it — so it is also the single seam that may hand out a GPU context.
   let visible = false;
+  const pinned = new Set<number>();
 
   // Pane bar visibility is CSS-only: pane.ts always builds and populates the
   // bar (the drag ghost and anchor still read its cwd) — this class hides it.
@@ -83,6 +86,7 @@ export function createTerminalManager(
 
   const life = createPaneLifecycle({
     pty,
+    inputBlocked: deps.inputBlocked,
     getSettings: () => settings.value,
     createPane: deps.createPane,
     onWriteWhileExited(id, data) {
@@ -100,6 +104,9 @@ export function createTerminalManager(
     },
     onUserInput(id) {
       callbacks.onPaneInput?.(id);
+    },
+    onUserInputData(id, data) {
+      callbacks.onPaneInputData?.(id, data);
     },
     onAttentionSignal(id, signal) {
       callbacks.onAttentionSignal?.(id, signal);
@@ -129,36 +136,50 @@ export function createTerminalManager(
     },
   });
 
-  function overlayInput() {
-    if (!tree) {
-      return null;
+  function onSplitTransitionEnd(event: TransitionEvent): void {
+    if (disposed || !visible || event.propertyName !== "flex-grow") return;
+    const child = event.target;
+    if (!(child instanceof HTMLElement) || !child.classList.contains("split__child")) return;
+    // Commit terminal geometry with the final animation frame. Waiting for
+    // the pane's ResizeObserver debounce adds a second, visible jump 90ms
+    // after the flex animation has already stopped.
+    for (const pane of life.panes.values()) {
+      if (child.contains(pane.element)) pane.fit();
     }
+  }
+  container.addEventListener("transitionend", onSplitTransitionEnd);
+
+  function overlayInput() {
+    const shown = unpinnedTree(tree, pinned);
+    if (!shown) return null;
     return {
-      tree,
+      tree: shown,
       activeId,
-      paneCount: life.panes.size,
+      paneCount: leafIds(shown).length,
       focusExpand: settings.value.focusExpand,
     };
   }
 
   function render(): void {
-    if (!tree) {
+    if (!tree) return;
+    const shown = overlayInput();
+    if (!shown) {
+      layout.unzoom();
+      const empty = document.createElement("div");
+      empty.className = "pinned-workspace-empty";
+      empty.textContent = "All terminals in this tab are pinned.";
+      container.replaceChildren(empty);
       return;
     }
     layout.sync({
-      tree,
-      activeId,
-      paneCount: life.panes.size,
-      focusExpand: settings.value.focusExpand,
+      ...shown,
       onRatioCommit(path, ratio) {
-        if (!tree) {
-          return;
-        }
-        tree = setRatio(tree, path, ratio);
+        if (!tree) return;
+        tree = pinned.size
+          ? setUnpinnedRatio(tree, pinned, path, ratio)
+          : setRatio(tree, path, ratio);
         const overlay = overlayInput();
-        if (overlay) {
-          layout.refreshOverlay(overlay);
-        }
+        if (overlay) layout.refreshOverlay(overlay);
         callbacks.onLayoutChange();
       },
     });
@@ -201,12 +222,18 @@ export function createTerminalManager(
     if (!tree) {
       return;
     }
+    const wasPinned = pinned.has(oldId);
     const result = await life.respawn(oldId, tree, activeId);
     if (result === null) {
       return;
     }
+    if (pinned.delete(oldId) && result.activeId !== null) {
+      pinned.add(result.activeId);
+      life.panes.get(result.activeId)?.element.classList.add("pane--pinned");
+    }
     tree = result.tree;
     activeId = result.activeId;
+    if (wasPinned && activeId !== null) callbacks.onPaneReplaced?.(oldId, activeId);
     // Mount (term.open) then focus — same order as pre-extraction respawn.
     render();
     if (activeId !== null) {
@@ -228,6 +255,7 @@ export function createTerminalManager(
       reportPersistError("This pane is being moved — it can't be closed yet.");
       return;
     }
+    pinned.delete(id);
     life.killPane(id);
     life.panes.delete(id);
     life.exited.delete(id);
@@ -249,7 +277,7 @@ export function createTerminalManager(
       activeId = leafIds(tree)[0] ?? null;
     }
     render();
-    if (activeId !== null) {
+    if (activeId !== null && (visible || pinned.has(activeId))) {
       life.panes.get(activeId)?.focus();
     }
     callbacks.onLayoutChange();
@@ -272,6 +300,7 @@ export function createTerminalManager(
    */
   function releaseMovedPane(id: number): void {
     closeSearchBarForPane(id);
+    pinned.delete(id);
     life.releasePane(id);
     if (!tree) {
       return;
@@ -307,6 +336,8 @@ export function createTerminalManager(
   }
 
   async function detachPaneById(id: number, target: DetachTarget): Promise<DetachOutcome> {
+    if (pinned.has(id))
+      return { kind: "kept", reason: "Unpin this terminal before moving it to another window." };
     transferring.add(id);
     try {
       return await runDetach(id, target);
@@ -479,7 +510,8 @@ export function createTerminalManager(
     if (!tree || activeId === null) {
       return;
     }
-    const ids = leafIds(tree);
+    const ids = leafIds(tree).filter((id) => visible || pinned.has(id));
+    if (!ids.length) return;
     const index = ids.indexOf(activeId);
     const next = ids[(index + step + ids.length) % ids.length];
     setActive(next);
@@ -527,7 +559,7 @@ export function createTerminalManager(
     options: PaneCreationOptions = {},
   ): Promise<void> {
     if (disposed || options.canCommit?.() === false) throw new Error("Launch cancelled");
-    const pane = await life.spawnPane(cwd);
+    const pane = await life.spawnPane(cwd, options.attachedPanes?.[0]);
     if (disposed || options.canCommit?.() === false) {
       life.discardPane(pane);
       throw new Error("Launch cancelled");
@@ -548,7 +580,7 @@ export function createTerminalManager(
     try {
       for (let i = 0; i < total; i += 1) {
         if (disposed || options.canCommit?.() === false) throw new Error("Launch cancelled");
-        spawned.push(await life.spawnPane(cwds[i] ?? null));
+        spawned.push(await life.spawnPane(cwds[i] ?? null, options.attachedPanes?.[i]));
         if (disposed || options.canCommit?.() === false) throw new Error("Launch cancelled");
       }
     } catch (err) {
@@ -658,18 +690,45 @@ export function createTerminalManager(
       // to be idempotent; `resumeRenderer` is.
       container.style.display = "";
       for (const pane of life.panes.values()) {
+        if (pinned.has(pane.id)) continue;
         pane.resumeRenderer();
         pane.fit();
       }
       if ((options?.focus ?? true) && activeId !== null) {
-        life.panes.get(activeId)?.focus();
+        const target = pinned.has(activeId)
+          ? leafIds(unpinnedTree(tree, pinned) ?? leaf(-1))[0]
+          : activeId;
+        if (target !== -1) {
+          setActive(target);
+          life.panes.get(target)?.focus();
+        }
       }
     },
     hide() {
       visible = false;
       container.style.display = "none";
       for (const pane of life.panes.values()) {
+        if (pinned.has(pane.id)) continue;
         pane.suspendRenderer();
+      }
+    },
+    setPanePinned(id, value) {
+      const pane = life.panes.get(id);
+      if (!pane || transferring.has(id)) return false;
+      layout.unzoom();
+      if (value) pinned.add(id);
+      else pinned.delete(id);
+      pane.element.classList.toggle("pane--pinned", value);
+      render();
+      if (!value && !visible) pane.suspendRenderer();
+      return true;
+    },
+    fitPane(id) {
+      const pane = life.panes.get(id);
+      if (pane && (visible || pinned.has(id))) {
+        pane.mount();
+        pane.resumeRenderer();
+        pane.fit();
       }
     },
     splitActive,
@@ -714,7 +773,7 @@ export function createTerminalManager(
     focusDirection,
     swapDirection,
     toggleZoom() {
-      layout.toggleZoom(activeId, life.panes.size);
+      if (!pinned.has(activeId ?? -1)) layout.toggleZoom(activeId, overlayInput()?.paneCount ?? 0);
     },
     focusActive() {
       if (activeId !== null) {
@@ -786,6 +845,9 @@ export function createTerminalManager(
       // panel is for (DL-34.6). `paneAlive` below answers the other question.
       return pane.serializeScrollback(lines);
     },
+    remoteScreen(id, lines) {
+      return life.panes.get(id)?.remoteScreen?.(lines) ?? null;
+    },
     paneAlive(id) {
       return life.panes.has(id) && !life.exited.has(id);
     },
@@ -853,6 +915,13 @@ export function createTerminalManager(
     handleOutput(id, data) {
       life.panes.get(id)?.write(data);
     },
+    drainPaneInput: (id) => life.drainWrites(id),
+    async resetPaneForShell(id) {
+      const pane = life.panes.get(id);
+      if (!pane || life.exited.has(id)) throw new Error("The terminal is no longer available.");
+      pane.write(AGENT_EXIT_RESET);
+      await pane.flush();
+    },
     handleExit,
     updatePaneInfo(infos, home) {
       for (const info of infos) {
@@ -878,6 +947,7 @@ export function createTerminalManager(
     fileDrop,
     dispose() {
       disposed = true;
+      container.removeEventListener("transitionend", onSplitTransitionEnd);
       paneDrag.dispose();
       layout.unzoom();
       life.killAll();

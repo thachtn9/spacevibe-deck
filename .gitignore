@@ -16,6 +16,7 @@ dist-monaco-smoke
 dist-monaco-smoke-renderer
 dist-electron-app
 dist-electron-release
+dist-electron-linux
 *.local
 
 # Editor directories and files

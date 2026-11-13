@@ -28,6 +28,7 @@ vi.mock("electron-updater", () => ({ autoUpdater: mocks.updater }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   mocks.root = mkdtempSync(join(tmpdir(), "deck-updater-ipc-"));
   mocks.handlers.clear();
   mocks.events.clear();
@@ -38,7 +39,10 @@ beforeEach(() => {
   });
   mocks.updater.downloadUpdate.mockResolvedValue([]);
 });
-afterEach(() => rmSync(mocks.root, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  rmSync(mocks.root, { recursive: true, force: true });
+});
 
 function invoke(name: string, payload?: unknown): unknown {
   const handler = mocks.handlers.get(name);
@@ -54,6 +58,13 @@ function setup() {
 }
 
 describe("updater IPC diagnostics", () => {
+  it("does not contact the upstream update feed on Linux", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    setup();
+    await expect(invoke("update_check")).resolves.toEqual({ status: "unsupported" });
+    expect(mocks.updater.setFeedURL).not.toHaveBeenCalled();
+    expect(mocks.updater.checkForUpdates).not.toHaveBeenCalled();
+  });
   it("returns a non-retryable reply after late staging failure and logs it", async () => {
     const handle = setup();
     await invoke("update_check");

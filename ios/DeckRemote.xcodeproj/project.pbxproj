@@ -1,0 +1,41 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		000000000000000000000064 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionVault.swift; sourceTree = "<group>"; };
+		0000000000000000000000C8 = {isa = PBXBuildFile; fileRef = 000000000000000000000064; };
+		000000000000000000000065 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckRemoteApp.swift; sourceTree = "<group>"; };
+		0000000000000000000000C9 = {isa = PBXBuildFile; fileRef = 000000000000000000000065; };
+		000000000000000000000066 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckStore.swift; sourceTree = "<group>"; };
+		0000000000000000000000CA = {isa = PBXBuildFile; fileRef = 000000000000000000000066; };
+		000000000000000000000067 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		0000000000000000000000CB = {isa = PBXBuildFile; fileRef = 000000000000000000000067; };
+		000000000000000000000068 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionView.swift; sourceTree = "<group>"; };
+		0000000000000000000000CC = {isa = PBXBuildFile; fileRef = 000000000000000000000068; };
+		000000000000000000000069 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotaView.swift; sourceTree = "<group>"; };
+		0000000000000000000000CD = {isa = PBXBuildFile; fileRef = 000000000000000000000069; };
+		00000000000000000000006A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteClient.swift; sourceTree = "<group>"; };
+		0000000000000000000000CE = {isa = PBXBuildFile; fileRef = 00000000000000000000006A; };
+		00000000000000000000006B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionViews.swift; sourceTree = "<group>"; };
+		0000000000000000000000CF = {isa = PBXBuildFile; fileRef = 00000000000000000000006B; };
+		00000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeckRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000003 = {isa = PBXGroup; children = (000000000000000000000004, 000000000000000000000005,); sourceTree = "<group>"; };
+		000000000000000000000004 = {isa = PBXGroup; children = (000000000000000000000064, 000000000000000000000065, 000000000000000000000066, 000000000000000000000067, 000000000000000000000068, 000000000000000000000069, 00000000000000000000006A, 00000000000000000000006B, 00000000000000000000000A,); path = DeckRemote; sourceTree = "<group>"; };
+		000000000000000000000005 = {isa = PBXGroup; children = (000000000000000000000006,); name = Products; sourceTree = "<group>"; };
+		000000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000000C8, 0000000000000000000000C9, 0000000000000000000000CA, 0000000000000000000000CB, 0000000000000000000000CC, 0000000000000000000000CD, 0000000000000000000000CE, 0000000000000000000000CF,); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000009 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000000C; buildPhases = (000000000000000000000007, 000000000000000000000008, 000000000000000000000009,); buildRules = (); dependencies = (); name = DeckRemote; productName = DeckRemote; productReference = 000000000000000000000006; productType = "com.apple.product-type.application"; };
+		000000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = {000000000000000000000002 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = 00000000000000000000000B; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = 000000000000000000000003; productRefGroup = 000000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002,); };
+		00000000000000000000000D = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_OPTIMIZATION_LEVEL = 0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; }; name = Debug; };
+		00000000000000000000000E = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; SWIFT_OPTIMIZATION_LEVEL = "-O"; VALIDATE_PRODUCT = YES; }; name = Release; };
+		00000000000000000000000F = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = DeckRemote/Info.plist; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.spacevibe.deck.remote; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; TARGETED_DEVICE_FAMILY = 1; ENABLE_PREVIEWS = YES; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Debug; };
+		000000000000000000000010 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = DeckRemote/Info.plist; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.spacevibe.deck.remote; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; TARGETED_DEVICE_FAMILY = 1; ENABLE_PREVIEWS = YES; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Release; };
+		00000000000000000000000B = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000D, 00000000000000000000000E,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		00000000000000000000000C = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000F, 000000000000000000000010,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+	};
+	rootObject = 000000000000000000000001;
+}

@@ -10,6 +10,8 @@ function makeNotification(overrides: Partial<AttentionNotification> = {}): Atten
     paneId: 1,
     revision: 1,
     kind: "completed",
+    source: "osc-progress",
+    confidence: "explicit",
     workspaceLabel: "my-workspace",
     agentLabel: "claude-code",
     ...overrides,
@@ -69,14 +71,14 @@ describe("createAgentNotifier", () => {
   });
 
   it.each([
-    ["requested", "needs attention"],
-    ["warning", "warning"],
-    ["error", "error"],
-  ] as const)("uses the fixed phrase for kind=%s", (kind, phrase) => {
+    ["requested", "needs attention", "hook"],
+    ["warning", "warning", "osc-progress"],
+    ["error", "error", "osc-progress"],
+  ] as const)("uses the fixed phrase for kind=%s", (kind, phrase, source) => {
     const { deps, send } = makeDeps();
     const notifier = createAgentNotifier(deps);
 
-    notifier.maybeNotify(makeNotification({ kind }));
+    notifier.maybeNotify(makeNotification({ kind, source }));
 
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0][0].body).toContain(phrase);
@@ -101,6 +103,39 @@ describe("createAgentNotifier", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it.each(["bell", "osc-notification", "output-heuristic", "process"] as const)(
+    "keeps source=%s silent even when the in-app state is actionable",
+    (source) => {
+      const { deps, send } = makeDeps();
+      const notifier = createAgentNotifier(deps);
+
+      notifier.maybeNotify(makeNotification({ kind: "requested", source }));
+
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps inferred completion silent", () => {
+    const { deps, send } = makeDeps();
+    const notifier = createAgentNotifier(deps);
+
+    notifier.maybeNotify(makeNotification({ source: "output-heuristic", confidence: "inferred" }));
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(["registry", "hook", "server"] as const)(
+    "sounds for an explicit request from source=%s",
+    (source) => {
+      const { deps, send } = makeDeps();
+      const notifier = createAgentNotifier(deps);
+
+      notifier.maybeNotify(makeNotification({ kind: "requested", source }));
+
+      expect(send).toHaveBeenCalledOnce();
+    },
+  );
+
   it("dedupes: a second call with the same (paneId, revision) does not re-fire", () => {
     const { deps, send } = makeDeps();
     const notifier = createAgentNotifier(deps);
@@ -117,7 +152,9 @@ describe("createAgentNotifier", () => {
     const notifier = createAgentNotifier(deps);
 
     notifier.maybeNotify(makeNotification({ paneId: 7, revision: 3, kind: "completed" }));
-    notifier.maybeNotify(makeNotification({ paneId: 7, revision: 4, kind: "requested" }));
+    notifier.maybeNotify(
+      makeNotification({ paneId: 7, revision: 4, kind: "requested", source: "hook" }),
+    );
 
     expect(send).toHaveBeenCalledTimes(2);
   });

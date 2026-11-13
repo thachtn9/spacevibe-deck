@@ -23,16 +23,16 @@ describe("buildResumeCommand — codex", () => {
     // Every Codex command Deck types carries `-c tui.animations=false`
     // (DECK-121): the idle starfield otherwise reads as a working agent.
     expect(buildResumeCommand("codex", { kind: "id", id: "abc123" }, NO_CUSTOM)).toBe(
-      "codex resume abc123 -c tui.animations=false",
+      "cli-codex resume abc123 -c tui.animations=false",
     );
   });
   it("latest ref", () => {
     expect(buildResumeCommand("codex", { kind: "latest" }, NO_CUSTOM)).toBe(
-      "codex resume --last -c tui.animations=false",
+      "cli-codex resume --last -c tui.animations=false",
     );
   });
   it("null ref", () => {
-    expect(buildResumeCommand("codex", null, NO_CUSTOM)).toBe("codex -c tui.animations=false");
+    expect(buildResumeCommand("codex", null, NO_CUSTOM)).toBe("cli-codex");
   });
 });
 
@@ -69,14 +69,14 @@ describe("buildResumeCommand — gemini", () => {
 describe("buildResumeCommand — agy", () => {
   it("id ref", () => {
     expect(buildResumeCommand("agy", { kind: "id", id: "abc123" }, NO_CUSTOM)).toBe(
-      "agy --conversation abc123",
+      "cli-agy --conversation abc123",
     );
   });
   it("latest ref", () => {
-    expect(buildResumeCommand("agy", { kind: "latest" }, NO_CUSTOM)).toBe("agy --continue");
+    expect(buildResumeCommand("agy", { kind: "latest" }, NO_CUSTOM)).toBe("cli-agy --continue");
   });
   it("null ref", () => {
-    expect(buildResumeCommand("agy", null, NO_CUSTOM)).toBe("agy");
+    expect(buildResumeCommand("agy", null, NO_CUSTOM)).toBe("cli-agy");
   });
 });
 

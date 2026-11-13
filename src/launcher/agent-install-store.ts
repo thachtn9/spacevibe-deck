@@ -89,13 +89,14 @@ function e2eCommandOverride(agentId: string): string | undefined {
 
 /** The offer for one agent id, from the live signals plus the E2E seam. */
 export function installOfferFor(agentId: string): InstallOffer {
+  const builtin = BUILTIN_AGENTS.find((agent) => agent.id === agentId);
   return installOffer({
-    agent: BUILTIN_AGENTS.find((agent) => agent.id === agentId),
+    agent: builtin,
     platform: getDesktopEnvironment().platform,
     available: agentInstallAvailable.value,
     probed: agentsProbed.value,
     enabled: !settings.value.disabledAgents.includes(agentId),
-    found: detectedAgents.value.some((agent) => agent.name === agentId),
+    found: detectedAgents.value.some((agent) => agent.name === (builtin?.binary ?? agentId)),
     commandOverride: e2eCommandOverride(agentId),
   });
 }

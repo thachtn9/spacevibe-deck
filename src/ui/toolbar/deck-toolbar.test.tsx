@@ -72,23 +72,19 @@ describe("DeckToolbar", () => {
     expect(toolbarLabel("toggle-settings")).toBe("Settings");
     expect(toolbarLabel("toggle-prompts")).toBe("Prompts");
     expect(toolbarLabel("toggle-browser")).toBe("Browser");
-    expect(toolbarLabel("toggle-usage")).toBe("Token usage");
+    expect(toolbarLabel("toggle-usage")).toBe("Quota");
     expect(toolbarLabel("toggle-explorer")).toBe("Explorer");
   });
 
-  // Shrunk twice on 2026-08-16. First File explorer, Token usage and Session
-  // history left the bar for the docked side panel, which carries its own tab
-  // row. Then the pane group moved into `More` (DL-23.8), leaving the bar with
-  // exactly one control. Browser, Prompts and Settings never rode here at all:
-  // they became rows in the rail's footer (DL-28.3), and top-tab mode stands
-  // the same rows up in `More`. Mounting them here too would put a second
-  // Prompt Board popover on screen at the same time as the footer's.
-  it("draws the More control and nothing else", () => {
+  it("shows splits and Focus expand directly alongside global tools when no rail holds them", () => {
     mount();
-    const labels = Array.from(host.querySelectorAll("button")).map((b) =>
-      b.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual(["More actions"]);
+    expect([...host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Text Editor",
+      "Split vertically",
+      "Split horizontally",
+      "Focus expand",
+      "Settings",
+    ]);
   });
 
   it.each([false, true])(
@@ -117,148 +113,60 @@ describe("DeckToolbar", () => {
     expect(host.querySelector(".agent-view-switch")).toBeNull();
   });
 
-  const menuLabels = (): (string | null | undefined)[] =>
-    Array.from(document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')).map(
-      (row) => row.querySelector(".toolbar-menu__label")?.textContent,
-    );
-
-  // DL-23.8 (amended 2026-10-07): with the rail's tools row on screen `More`
-  // keeps the pane group only; the global group and the Prompt Board's anchor
-  // moved to the rail.
-  it("carries the pane group only while the rail's tools row is mounted", () => {
-    mount({ railToolsMounted: true, promptsOpen: true, promptPopover: <div class="pp" /> });
-    act(() => button("More actions").click());
-
-    expect(menuLabels()).toEqual([
+  it("shows splits and Focus expand when the rail holds the global tools", () => {
+    const on = mount({ railToolsMounted: true, expandActive: true });
+    expect([...host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Text Editor",
       "Split vertically",
       "Split horizontally",
       "Focus expand",
-      "Close pane",
     ]);
-    // One anchor at a time: the popover is the rail's, so `More` renders none.
-    expect(document.querySelector(".pp")).toBeNull();
+    expect(button("Focus expand").getAttribute("aria-pressed")).toBe("true");
+    act(() => button("Split vertically").click());
+    act(() => button("Split horizontally").click());
+    expect(on.onSplitRow).toHaveBeenCalledOnce();
+    expect(on.onSplitColumn).toHaveBeenCalledOnce();
+    act(() => button("Focus expand").click());
+    expect(on.onToggleExpand).toHaveBeenCalledOnce();
+    expect(host.querySelector('[aria-label="More actions"]')).toBeNull();
   });
 
   it.each([{ compact: true }, { railToolsMounted: false }])(
-    "keeps all seven rows in More when nothing holds the global group (%o)",
+    "keeps global tools reachable directly (%o)",
     (overrides) => {
-      mount(overrides);
-      act(() => button("More actions").click());
-
-      expect(menuLabels()).toHaveLength(7);
+      const on = mount(overrides);
+      expect(host.querySelector('[aria-label="Browser"]')).toBeNull();
+      expect(host.querySelector('[aria-label="Prompts"]')).toBeNull();
+      act(() => button("Settings").click());
+      expect(on.onToggleBrowser).not.toHaveBeenCalled();
+      expect(on.onTogglePrompts).not.toHaveBeenCalled();
+      expect(on.onToggleSettings).toHaveBeenCalledOnce();
+      expect(host.querySelector('[aria-label="More actions"]')).toBeNull();
     },
   );
 
-  it("never trusts the rail in compact mode, even when it is flagged mounted", () => {
-    mount({ compact: true, railToolsMounted: true });
-    act(() => button("More actions").click());
-
-    expect(menuLabels()).toHaveLength(7);
+  it("keeps the prompt popover on exactly one anchor", () => {
+    mount({ railToolsMounted: false, promptsOpen: true, promptPopover: <div class="pp" /> });
+    expect(host.querySelectorAll(".pp")).toHaveLength(0);
+    mount({ railToolsMounted: true, promptsOpen: true, promptPopover: <div class="pp" /> });
+    expect(host.querySelector(".pp")).toBeNull();
   });
 
-  it("carries the whole pane group as named rows inside More", () => {
-    const on = mount();
-    act(() => button("More actions").click());
-
-    const rows = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]'),
-    );
-    // The pane group leads, and the global group follows it wherever no rail
-    // holds that group: top-tab mode, Tauri and a window with no live rail.
-    expect(rows.map((row) => row.querySelector(".toolbar-menu__label")?.textContent)).toEqual([
+  it("omits Open in and keeps attention and dev-server controls", () => {
+    mount({
+      railToolsMounted: true,
+      externalApp: <button aria-label="Open in editor" />,
+      attention: <button aria-label="2 need you" />,
+      devServers: <button aria-label="Dev servers" />,
+    });
+    expect([...host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Text Editor",
       "Split vertically",
       "Split horizontally",
-      "Focus expand",
-      "Close pane",
-      "Browser",
-      "Prompts",
-      "Settings",
-    ]);
-
-    // A row runs the same callback the icon used to, so the command path the
-    // keyboard and the native menu take is untouched by the move.
-    act(() => (rows[3] as HTMLButtonElement).click());
-    expect(on.onClosePane).toHaveBeenCalledTimes(1);
-  });
-
-  it("renders no history control on a host without session history", () => {
-    const labels = Array.from(host.querySelectorAll("button")).map((b) =>
-      b.getAttribute("aria-label"),
-    );
-    expect(labels).not.toContain("Session history");
-  });
-
-  it("hands the window's free width back as a drag surface", () => {
-    mount();
-    expect(host.querySelector(".ftoolbar__drag")).not.toBeNull();
-  });
-  it("stands the global pair up in More when the layout is compact", () => {
-    mount({ compact: true });
-    const more = button("More actions");
-
-    act(() => more.click());
-
-    const rows = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]'),
-    ).map((row) => row.textContent);
-    expect(rows?.some((row) => row?.includes("Browser"))).toBe(true);
-    expect(rows?.some((row) => row?.includes("Prompts"))).toBe(true);
-    expect(rows?.some((row) => row?.includes("Settings"))).toBe(true);
-  });
-
-  // The bar itself must never carry them, in either layout — that is what
-  // keeps a second Prompt Board popover off the screen.
-  it("never puts the rail's own rows on the bar", () => {
-    for (const compact of [true, false]) {
-      mount({ compact });
-      const labels = Array.from(host.querySelectorAll(".ftoolbar > * button"))
-        .map((b) => b.getAttribute("aria-label"))
-        .filter((label) => label !== "More actions");
-      expect(labels).not.toContain("Prompts");
-      expect(labels).not.toContain("Settings");
-      expect(labels).not.toContain("Browser");
-    }
-  });
-  // DL-27.26 (amended 2026-10-06): the needs-you chip leads the strip's trailing
-  // controls, so it sits next to the toolbar rather than inside the drag filler.
-  it("seats the needs-you chip first among the trailing controls", () => {
-    mount({
-      attention: <button type="button" aria-label="2 need you" />,
-      externalApp: <button type="button" aria-label="Open in editor" />,
-    });
-
-    const labels = Array.from(host.querySelectorAll(".ftoolbar button")).map((b) =>
-      b.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual(["2 need you", "Open in editor", "More actions"]);
-    expect(
-      host.querySelector(".ftoolbar__drag")?.nextElementSibling?.getAttribute("aria-label"),
-    ).toBe("2 need you");
-  });
-
-  // DL-36.1: the dev servers chip follows the needs-you chip, ahead of the
-  // external-app button.
-  it("seats the dev servers chip after the needs-you chip", () => {
-    mount({
-      attention: <button type="button" aria-label="2 need you" />,
-      devServers: <button type="button" aria-label="Dev servers — 1 running" />,
-      externalApp: <button type="button" aria-label="Open in editor" />,
-    });
-
-    const labels = Array.from(host.querySelectorAll(".ftoolbar button")).map((b) =>
-      b.getAttribute("aria-label"),
-    );
-    expect(labels).toEqual([
       "2 need you",
-      "Dev servers — 1 running",
-      "Open in editor",
-      "More actions",
+      "Dev servers",
+      "Focus expand",
     ]);
-  });
-
-  it("draws no chip slot when nothing is handed in", () => {
-    mount();
-
-    expect(host.querySelector('[aria-label$="need you"]')).toBeNull();
+    expect(host.querySelector(".ftoolbar__drag")).not.toBeNull();
   });
 });

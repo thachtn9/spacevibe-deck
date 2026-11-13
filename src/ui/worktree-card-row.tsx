@@ -1,3 +1,4 @@
+import { RailPanePin } from "./rail-pane-pin";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { AgentGlyph } from "./controls/agent-glyph";
 import { SpaceRenameField } from "./spaces/space-rename-field";
@@ -167,7 +168,10 @@ function CardRowText({
           onCancel={onCancel}
         />
       ) : (
-        <span class="asr-card__name">{first}</span>
+        <span class="asr-card__name">
+          <RailPanePin id={pane.paneId} />
+          {first}
+        </span>
       )}
       <span class="asr-card__sentence">{second}</span>
     </span>

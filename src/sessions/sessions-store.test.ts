@@ -532,6 +532,21 @@ describe("requestSessionTitles (rail A2)", () => {
     expect(calls()).toBe(0);
   });
 
+  it("refreshes known manager titles after the first prompt, within the shared throttle", async () => {
+    const manager = { account: "acc5", isClient: false, workspaceExists: true, running: true };
+    sessionEntries.value = [entry({ sessionId: "a", agent: "agy", title: null, manager })];
+    const { client, calls } = countingClient([
+      entry({ sessionId: "a", agent: "agy", title: "New task", manager }),
+    ]);
+    requestSessionTitles(["a"], base, client);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sessionEntries.value[0].title).toBe("New task");
+    requestSessionTitles(["a"], base + 1, client);
+    expect(calls()).toBe(1);
+    requestSessionTitles(["a"], base + SESSION_TITLE_SCAN_INTERVAL_MS, client);
+    expect(calls()).toBe(2);
+  });
+
   it("does not scan on a host without session history or during a scan", () => {
     const { client, calls } = countingClient([]);
     sessionsSupported.value = false;

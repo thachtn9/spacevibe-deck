@@ -13,6 +13,10 @@ import { defaultTransferClient } from "./terminal/transfer-client";
 import { initRendererCrashReporting } from "./telemetry/crash-reporting";
 
 async function main(): Promise<void> {
+  if (new URLSearchParams(location.search).get("codeViewer") === "1") {
+    await (await import("./files/code-viewer-window")).mountCodeViewerWindow();
+    return;
+  }
   // First, so a failure anywhere in the boot below is reported. Losing the
   // SDK must never cost the user a window, so a load failure only warns.
   await initRendererCrashReporting().catch((error: unknown) => {
