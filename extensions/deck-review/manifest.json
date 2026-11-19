@@ -2,17 +2,14 @@
   "manifest_version": 3,
   "name": "Deck Review",
   "version": "1.1.0",
-  "description": "Select elements, annotate your web app and queue requests to an existing Deck agent.",
-  "permissions": ["activeTab", "scripting", "storage", "sidePanel", "unlimitedStorage"],
+  "description": "Select elements, annotate your web app and send requests to the active Deck agent.",
+  "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage"],
   "host_permissions": ["http://127.0.0.1:43129/*"],
   "background": {
     "service_worker": "worker.js"
   },
   "action": {
     "default_title": "Deck Review (Alt+X to inspect)"
-  },
-  "side_panel": {
-    "default_path": "panel.html"
   },
   "commands": {
     "toggle-review": {
@@ -25,7 +22,8 @@
       "suggested_key": {
         "default": "Ctrl+Shift+Y"
       },
-      "description": "Open Deck Review panel"
+      "description": "Toggle Deck Review toolbar"
     }
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnFf4cslvNdb53JmIqID/tD7uPsJhCUkhR6tONzXB9CzURZxPqQBvzazHUeTsA2dOvm9gvt70xMvJMbKa6wfJrYyUsf5QMGWBrNIMF2r67tnAeI/8SZ/iGOfuCwD4XyTZqPGVxogYD2GfLxYb1LhvxmIuNal+L5/9LU9q/hCMChx9nVjLUP31NaVd4xKk0jhMSBgh+E1yNhSWY72/NgdmIQ++S9XwLhLaIRLS/8O9f4Pdcmbz6K8jVf81fWn+HP8rXhHSK2xg6qBveAZdtSkPBExklEwQQhMTJuKWANF5Z/BAPmsqJvvovCGaar3RV6UnZFWA0IIwL/6ZQkaXjKi5HwIDAQAB"
 }

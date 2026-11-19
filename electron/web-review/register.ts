@@ -65,6 +65,7 @@ function validateCandidate(raw: unknown, clientId: string): ReviewCandidate | nu
 
 export function registerWebReview(deps: {
   userData: string;
+  extensionPort?: number;
   preload: string;
   pagePreload: string;
   rendererUrl: string;
@@ -77,6 +78,11 @@ export function registerWebReview(deps: {
   const storage = new ReviewStorage(path.join(deps.userData, "web-review"));
   const owners = new Map<string, Owner>(),
     pending = new Map<string, Pending>();
+  let activeTarget: ReviewTarget | null = null;
+  function broadcastActive(): void {
+    for (const label of new Set([...owners.values()].map((o) => o.label)))
+      deps.emit(label, "web-review:active", activeTarget);
+  }
   const canonical = new Map<string, string>();
   let theme: Record<string, string> = {};
   const candidates = () =>
@@ -107,37 +113,75 @@ export function registerWebReview(deps: {
       theme,
     }),
   });
+  const dispatch = (
+    target: ReviewTarget,
+    attemptId: string,
+    prompt: string,
+  ): Promise<ReviewDelivery> =>
+    new Promise<ReviewDelivery>((resolve) => {
+      const owner = ownerFor(target);
+      if (!owner) {
+        resolve("target-changed");
+        return;
+      }
+      const timer = setTimeout(() => finish("uncertain"), 25_000);
+      const finish = (result: ReviewDelivery) => {
+        clearTimeout(timer);
+        pending.delete(attemptId);
+        resolve(result);
+      };
+      pending.set(attemptId, {
+        target,
+        label: owner.label,
+        prompt: reviewText(prompt, 16000),
+        pasted: false,
+        submitted: false,
+        writing: false,
+        resolve: finish,
+      });
+      if (!deps.emit(owner.label, "web-review:deliver", { target, attemptId })) finish("waiting");
+    });
   const queue = new ReviewQueue({
     storage,
     candidates,
     verify,
     changed: () => window.changed(),
-    dispatch: (target, attemptId, prompt) =>
-      new Promise<ReviewDelivery>((resolve) => {
-        const owner = ownerFor(target);
-        if (!owner) {
-          resolve("target-changed");
-          return;
-        }
-        const timer = setTimeout(() => finish("uncertain"), 25_000);
-        const finish = (result: ReviewDelivery) => {
-          clearTimeout(timer);
-          pending.delete(attemptId);
-          resolve(result);
-        };
-        pending.set(attemptId, {
-          target,
-          label: owner.label,
-          prompt: reviewText(prompt, 16000),
-          pasted: false,
-          submitted: false,
-          writing: false,
-          resolve: finish,
-        });
-        if (!deps.emit(owner.label, "web-review:deliver", { target, attemptId })) finish("waiting");
-      }),
+    dispatch,
   });
-  const extension = createReviewExtensionServer({ storage, candidates, verify, changed });
+  const extension = createReviewExtensionServer({
+    port: deps.extensionPort,
+    storage,
+    candidates,
+    verify,
+    changed,
+    active: () => activeTarget,
+    dispatch: (target, attemptId, prompt) =>
+      activeTarget && sameReviewTarget(activeTarget, target)
+        ? dispatch(target, attemptId, prompt)
+        : Promise.resolve("target-changed"),
+  });
+  ipcMain.handle("web_review_active", (event) => {
+    deps.labelOf(event);
+    return activeTarget && ownerFor(activeTarget) ? activeTarget : null;
+  });
+  ipcMain.handle("web_review_activate", async (event, { paneId }) => {
+    const label = deps.labelOf(event);
+    if (paneId === null) {
+      if (activeTarget && ownerFor(activeTarget)?.label !== label)
+        throw new Error("The active conversation belongs to another window.");
+      activeTarget = null;
+    } else {
+      const target = [...owners.values()]
+        .filter((o) => o.label === label)
+        .flatMap((o) => o.rows)
+        .find((c) => c.paneId === paneId);
+      if (!target || !(await verify(target)))
+        throw new Error("Select a live Codex or AGY session.");
+      activeTarget = { ...target };
+    }
+    broadcastActive();
+    return activeTarget;
+  });
   void storage
     .load()
     .then(changed)
@@ -215,6 +259,10 @@ export function registerWebReview(deps: {
     for (const [id, owner] of owners)
       if (owner.label === label && id !== clientId) owners.delete(id);
     owners.set(clientId, { label, rows: valid, at: Date.now() });
+    if (activeTarget && !ownerFor(activeTarget)) {
+      activeTarget = null;
+      broadcastActive();
+    }
     if (colors && typeof colors === "object")
       theme = Object.fromEntries(
         Object.entries(colors).filter(
@@ -240,7 +288,7 @@ export function registerWebReview(deps: {
     if (owners.get(clientId)?.label === label) owners.delete(clientId);
     window.changed();
   });
-  ipcMain.handle("web_review_write", async (event, { attemptId, stage, revision }) => {
+  ipcMain.handle("web_review_write", async (event, { attemptId, stage }) => {
     const label = deps.labelOf(event),
       p = pending.get(attemptId);
     if (!p || p.label !== label || p.writing || !["paste", "submit"].includes(stage)) return false;
@@ -249,7 +297,7 @@ export function registerWebReview(deps: {
     try {
       if (!(await verify(p.target)) || pending.get(attemptId) !== p) return false;
       const current = ownerFor(p.target)?.rows.find((c) => sameReviewTarget(c, p.target));
-      if (!current || !reviewReady(current) || current.revision !== revision) return false;
+      if (!current || !reviewReady(current)) return false;
       deps.assertOwner(p.target.paneId, label);
       // Reserve the individual write before touching the PTY; retries cannot duplicate it.
       if (stage === "paste") p.pasted = true;

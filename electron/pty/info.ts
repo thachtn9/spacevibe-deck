@@ -42,6 +42,8 @@ export interface PtyInfo {
   readonly processId: number | null;
   /** Linux CLI Manager account from the foreground agent's own profile environment. */
   readonly account?: string | null;
+  /** Browser Review only: tty-bound process generation, never a resume identity. */
+  readonly reviewProcessIdentity?: string | null;
   readonly codexSessionId?: string | null;
   readonly codexIdentityState?: "ready" | "locked" | "shared" | "unidentified";
   readonly agySessionId?: string | null;

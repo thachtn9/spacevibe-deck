@@ -3,9 +3,19 @@ import { randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { nativeImage } from "electron";
-import type { ReviewAnnotation, ReviewCandidate, ReviewTarget } from "../../src/lib/web-review";
+import {
+  reviewReady,
+  sameReviewTarget,
+  type ReviewBatch,
+  type ReviewDelivery,
+  type ReviewAnnotation,
+  type ReviewCandidate,
+  type ReviewTarget,
+} from "../../src/lib/web-review";
 import { ReviewStorage, reviewText } from "./storage";
 import { validateReviewCapture } from "./capture";
+
+import { REVIEW_EXTENSION_ID } from "./extension-identity";
 
 const PORT = 43129;
 interface Credential {
@@ -36,9 +46,12 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 /** Extension transport has no arbitrary terminal-write or filesystem-read endpoint. */
 export function createReviewExtensionServer(deps: {
   storage: ReviewStorage;
+  port?: number;
   candidates(): ReviewCandidate[];
   verify(target: ReviewTarget): Promise<boolean>;
   changed(): void;
+  active(): ReviewTarget | null;
+  dispatch(target: ReviewTarget, attemptId: string, prompt: string): Promise<ReviewDelivery>;
 }) {
   const credentialPath = path.join(deps.storage.directory, "extension.json");
   let credential: Credential | null = null;
@@ -67,7 +80,11 @@ export function createReviewExtensionServer(deps: {
       response.end(JSON.stringify(value));
     };
     try {
-      if (request.headers.host !== `127.0.0.1:${PORT}` || request.method === "OPTIONS") {
+      if (
+        request.headers.host !==
+          `127.0.0.1:${(server.address() as { port: number } | null)?.port}` ||
+        request.method === "OPTIONS"
+      ) {
         send(403, { error: "Extension requests only." });
         return;
       }
@@ -82,6 +99,28 @@ export function createReviewExtensionServer(deps: {
         return;
       }
       await ready;
+      if (request.url === "/connect" && request.method === "POST") {
+        if (
+          extension !== REVIEW_EXTENSION_ID ||
+          request.headers.origin !== `chrome-extension://${REVIEW_EXTENSION_ID}`
+        ) {
+          send(403, {
+            error: "Use the Deck Review extension distributed with this Deck installation.",
+          });
+          return;
+        }
+        if (credential && credential.extension !== extension) {
+          // The owner-authorized automatic connection replaces legacy code pairing.
+          credential = null;
+        }
+        if (!credential) {
+          const next = { extension, token: randomBytes(32).toString("hex") };
+          await deps.storage.atomic(credentialPath, JSON.stringify(next));
+          credential = next;
+        }
+        send(200, { token: credential.token });
+        return;
+      }
       if (request.url === "/pair" && request.method === "POST") {
         const input = await body(request);
         if (!code || Date.now() > expires || failures >= 5 || !equal(input.code, code)) {
@@ -119,7 +158,9 @@ export function createReviewExtensionServer(deps: {
             target: b.target.label,
           })),
         }));
-        send(200, { roots, targets, projects });
+        const selected = deps.active();
+        const active = (selected && targets.find((t) => sameReviewTarget(t, selected))) || null;
+        send(200, { roots, targets, projects, active, ready: !!active && reviewReady(active) });
         return;
       }
       if (request.method === "POST" && request.url === "/batch") {
@@ -127,20 +168,36 @@ export function createReviewExtensionServer(deps: {
         const id = String(input.id);
         if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid batch identity.");
         if (deps.storage.projects().some((p) => p.batches.some((b) => b.id === id))) {
-          send(200, { id });
+          const existing = deps.storage
+            .projects()
+            .flatMap((p) => p.batches)
+            .find((b) => b.id === id)!;
+          send(200, { id, status: existing.status, message: existing.message });
           return;
         }
-        const target = deps
-          .candidates()
-          .find(
-            (t) =>
-              t.clientId === input.clientId &&
-              t.paneId === input.paneId &&
-              t.sessionId === input.sessionId &&
-              t.root === input.root,
-          );
-        if (!target || !(await deps.verify(target)))
-          throw new Error("Select a live conversation in this source.");
+        const selected = deps.active();
+        const target = selected && deps.candidates().find((t) => sameReviewTarget(t, selected));
+        if (
+          !target ||
+          target.clientId !== input.clientId ||
+          target.paneId !== input.paneId ||
+          target.sessionId !== input.sessionId ||
+          target.root !== input.root ||
+          !(await deps.verify(target))
+        )
+          throw new Error("Select an active Browser Review session in Deck.");
+        if (
+          deps.storage
+            .projects()
+            .some((p) =>
+              p.batches.some(
+                (b) =>
+                  sameReviewTarget(b.target, target) &&
+                  ["dispatching", "staged", "uncertain", "queued"].includes(b.status),
+              ),
+            )
+        )
+          throw new Error("Check the previous delivery in Deck before sending another request.");
         const project = await deps.storage.open(target.root);
         if (project.batches.some((b) => b.id === id)) {
           send(200, { id });
@@ -196,23 +253,67 @@ export function createReviewExtensionServer(deps: {
             reviewed: false,
           });
         }
+        const attemptId = randomUUID();
+        const batch: ReviewBatch = {
+          id,
+          createdAt: Date.now(),
+          target,
+          annotations,
+          status: "dispatching",
+          message: "Sending to the active conversation…",
+          attemptId,
+          deliveredAt: null,
+        };
+        const prompt = await deps.storage.prepare(project, batch);
+        const reserved = await deps.storage.edit(project.id, (p) => {
+          if (p.batches.some((b) => b.id === id)) return false;
+          if (
+            p.batches.some(
+              (b) =>
+                sameReviewTarget(b.target, target) &&
+                ["dispatching", "staged", "uncertain", "queued"].includes(b.status),
+            )
+          )
+            throw new Error(
+              "Another delivery is already in progress. Check the agent before sending again.",
+            );
+          p.batches.push(batch);
+          return true;
+        });
+        if (!reserved) {
+          const existing = deps.storage.project(project.id).batches.find((b) => b.id === id)!;
+          send(200, { id, status: existing.status, message: existing.message });
+          return;
+        }
+        let outcome: ReviewDelivery = "uncertain";
+        try {
+          const fresh = deps.candidates().find((c) => sameReviewTarget(c, target));
+          outcome =
+            fresh && (await deps.verify(target))
+              ? await deps.dispatch(target, attemptId, prompt)
+              : "waiting";
+        } catch {
+          /* A lost reply cannot authorize replay. */
+        }
+        const status =
+          outcome === "waiting" || outcome === "target-changed" ? "cancelled" : outcome;
+        const message = {
+          sent: "Sent to the active agent.",
+          cancelled:
+            outcome === "target-changed"
+              ? "The active session changed. Select Active again in Deck. Your comments are saved."
+              : "The active terminal has unsent input, an approval prompt, or another operation in progress. Your comments are saved.",
+          staged: "Inserted but not submitted. Check the agent composer before continuing.",
+          uncertain: "Delivery could not be confirmed. Check the conversation before continuing.",
+        }[status];
         await deps.storage.edit(project.id, (p) => {
-          if (p.batches.some((b) => b.id === id)) return;
-          if (p.batches.filter((b) => b.status === "queued").length >= 30)
-            throw new Error("There are already 30 waiting batches.");
-          p.batches.push({
-            id,
-            createdAt: Date.now(),
-            target,
-            annotations,
-            status: "queued",
-            message: "Waiting for the selected conversation to become idle.",
-            attemptId: null,
-            deliveredAt: null,
-          });
+          const current = p.batches.find((b) => b.id === id)!;
+          current.status = status;
+          current.message = message;
+          current.deliveredAt = Date.now();
         });
         deps.changed();
-        send(200, { id });
+        send(200, { id, status, message });
         return;
       }
       if (request.method === "POST" && request.url === "/cancel") {
@@ -220,7 +321,10 @@ export function createReviewExtensionServer(deps: {
         const project = deps.storage
           .projects()
           .find((p) => p.batches.some((b) => b.id === input.id));
-        if (!project) throw new Error("Batch missing.");
+        if (!project) {
+          send(200, {});
+          return;
+        }
         await deps.storage.edit(project.id, (p) => {
           const b = p.batches.find((b) => b.id === input.id)!;
           if (!["queued", "staged", "uncertain"].includes(b.status))
@@ -246,7 +350,7 @@ export function createReviewExtensionServer(deps: {
         () =>
           new Promise<void>((resolve, reject) => {
             server.once("error", reject);
-            server.listen(PORT, "127.0.0.1", () => {
+            server.listen(deps.port ?? PORT, "127.0.0.1", () => {
               server.removeListener("error", reject);
               resolve();
             });
@@ -258,6 +362,9 @@ export function createReviewExtensionServer(deps: {
       }));
   }
   return {
+    get port(): number {
+      return (server.address() as { port: number } | null)?.port ?? deps.port ?? PORT;
+    },
     async pairing() {
       await start();
       code = String(randomInt(100000, 1000000));

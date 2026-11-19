@@ -845,6 +845,9 @@ export function createTerminalManager(
       // panel is for (DL-34.6). `paneAlive` below answers the other question.
       return pane.serializeScrollback(lines);
     },
+    reviewComposerEmpty(id) {
+      return life.panes.get(id)?.reviewComposerEmpty?.() === true;
+    },
     remoteScreen(id, lines) {
       return life.panes.get(id)?.remoteScreen?.(lines) ?? null;
     },

@@ -2424,7 +2424,9 @@ export function createTabManager(
         : tab.manager.paneIds().flatMap((paneId) => {
             const info = poller.infoFor(paneId),
               attention = paneAttention(paneId);
-            const sessionId = info?.agent === "codex" ? info.codexSessionId : info?.agySessionId;
+            const sessionId =
+              (info?.agent === "codex" ? info.codexSessionId : info?.agySessionId) ||
+              (info?.codexIdentityState !== "locked" ? info?.reviewProcessIdentity : null);
             if (
               info?.kind !== "agent" ||
               (info.agent !== "codex" && info.agent !== "agy") ||
@@ -2437,6 +2439,9 @@ export function createTabManager(
             const view = tabViews.value
               .find((v) => v.key === tab.key)
               ?.panes?.find((p) => p.paneId === paneId);
+            const composerEmpty = tab.manager.reviewComposerEmpty?.(paneId) === true;
+            const confidence =
+              composerEmpty && attention.phase === "idle" ? "explicit" : attention.phaseConfidence;
             return [
               {
                 clientId,
@@ -2450,7 +2455,7 @@ export function createTabManager(
                 startedAt: view?.startedAt ?? 0,
                 label: `${info.agent === "codex" ? "Codex" : "AGY"}${info.account ? ` · ${info.account}` : ""} · ${sessionId.slice(0, 8)}`,
                 phase: attention.phase,
-                confidence: attention.phaseConfidence,
+                confidence,
                 attention: attention.attention,
                 hasRun: attention.hasRun,
                 changedAt: attention.changedAt,
@@ -2458,7 +2463,9 @@ export function createTabManager(
                 inputPending: reviewInput.pending(
                   paneId,
                   attention.phase,
-                  attention.phaseConfidence,
+                  confidence,
+                  composerEmpty,
+                  sessionId.startsWith("process-"),
                 ),
               } satisfies ReviewCandidate,
             ];
@@ -2493,7 +2500,9 @@ export function createTabManager(
           info?.kind === "agent" &&
           info.agent === target.agent &&
           info.processId === target.processId &&
-          (target.agent === "codex" ? info.codexSessionId : info.agySessionId) === target.sessionId
+          ((target.agent === "codex" ? info.codexSessionId : info.agySessionId) ||
+            (info.codexIdentityState !== "locked" ? info.reviewProcessIdentity : null)) ===
+            target.sessionId
         );
       },
       drain: async () => {
@@ -4027,6 +4036,7 @@ export function createTabManager(
         ];
       }),
     injectIntoPane,
+    refreshWebReviewTargets: () => poller.poll(),
     webReviewTargets,
     deliverWebReview,
     newTab,

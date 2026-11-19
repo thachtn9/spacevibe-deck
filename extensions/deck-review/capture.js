@@ -10,109 +10,52 @@
   const style = document.createElement("style");
   style.textContent = [
     "* { box-sizing: border-box; }",
-    ".dr-toolbar {",
-    "  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);",
-    "  display: none; align-items: center;",
-    "  background: rgba(14, 16, 22, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);",
-    "  border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.4);",
-    "  border-radius: 9999px; padding: 4px 6px; gap: 3px; z-index: 2147483647;",
-    "  pointer-events: auto; user-select: none;",
-    '  font: 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f0f3f8;',
-    "  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);",
-    "}",
-    ".dr-brand {",
-    "  display: flex; align-items: center; gap: 6px; padding: 0 6px 0 6px;",
-    "  color: " + accent + "; font-weight: 700; font-size: 11px; letter-spacing: -0.01em;",
-    "}",
-    ".dr-btn {",
-    "  display: inline-flex; align-items: center; gap: 6px;",
-    "  background: transparent; border: 1px solid transparent; border-radius: 9999px;",
-    "  padding: 6px 11px; color: #9da4b2; font: inherit; font-weight: 550;",
-    "  cursor: pointer; transition: all 0.15s ease;",
-    "}",
-    ".dr-btn:hover:not(.active) { background: rgba(255, 255, 255, 0.08); color: #f0f3f8; }",
-    ".dr-btn.active {",
-    "  background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.18);",
-    "  color: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);",
-    "}",
-    ".dr-divider { width: 1px; height: 16px; background: rgba(255, 255, 255, 0.1); margin: 0 2px; }",
-    ".dr-badge { font-size: 10px; color: #717886; padding: 0 4px; font-family: ui-monospace, monospace; }",
-    ".dr-btn-close {",
-    "  background: transparent; border: 0; color: #717886; width: 22px; height: 22px;",
-    "  border-radius: 50%; cursor: pointer; display: grid; place-items: center; margin-left: 2px;",
-    "}",
-    ".dr-btn-close:hover { background: rgba(255, 255, 255, 0.1); color: #f0f3f8; }",
-    ".dr-box {",
-    "  position: fixed; box-sizing: border-box; display: none;",
-    "  border: 2px solid " + accent + "; background: rgba(78, 140, 255, 0.08);",
-    "  box-shadow: 0 0 0 1px rgba(0,0,0,0.4), 0 0 16px rgba(78, 140, 255, 0.25);",
-    "  border-radius: 4px; pointer-events: none;",
-    "  transition: top 0.04s ease, left 0.04s ease, width 0.04s ease, height 0.04s ease;",
-    "}",
-    ".dr-caption {",
-    "  position: absolute; bottom: calc(100% + 6px); left: 0;",
-    '  font: 500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-    "  background: rgba(15, 18, 24, 0.94); backdrop-filter: blur(8px);",
-    "  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 4px 14px rgba(0,0,0,0.45);",
-    "  color: #f0f3f8; padding: 4px 9px; white-space: nowrap; border-radius: 6px;",
-    "  pointer-events: none; display: inline-flex; align-items: center; gap: 6px; z-index: 10;",
-    "}",
-    ".dr-popover {",
-    "  position: fixed; display: none; width: 330px;",
-    "  background: rgba(17, 20, 28, 0.96); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);",
-    "  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px;",
-    "  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.4);",
-    "  padding: 12px; z-index: 2147483647; pointer-events: auto;",
-    '  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f0f3f8;',
-    "  user-select: text;",
-    "}",
-    ".dr-popover-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }",
-    ".dr-tag {",
-    "  font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;",
-    "  padding: 2px 6px; border-radius: 3px; background: rgba(78, 140, 255, 0.18); color: " +
+    '.dr-toolbar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: none; align-items: center; gap: 3px; padding: 5px; max-width: calc(100vw - 24px); background: #202022; border: 1px solid #39393c; border-radius: 999px; box-shadow: 0 6px 20px #0003; pointer-events: auto; user-select: none; cursor: grab; touch-action: none; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f5f5f5; }',
+    ".dr-brand { display: flex; align-items: center; gap: 6px; padding: 0 9px; color: #bdbdc4; font-size: 12px; font-weight: 600; }",
+    ".dr-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 12px; background: transparent; border: 0; border-radius: 999px; color: #bdbdc4; font: inherit; cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }",
+    ".dr-btn:hover, .dr-btn-close:hover, .dr-popover-close:hover { background: #ffffff12; color: #fff; }",
+    ".dr-btn.active { background: #414145; color: #fff; }",
+    ".dr-divider { height: 18px; width: 1px; margin: 0 4px; background: #ffffff20; }",
+    ".dr-badge { padding: 0 5px; color: #b0b0b8; font-size: 11px; white-space: nowrap; }",
+    ".dr-btn-close, .dr-popover-close { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #bdbdc4; cursor: pointer; }",
+    "button:focus-visible, .dr-pin:focus-visible { outline: 2px solid " +
       accent +
-      ";",
-    "}",
-    ".dr-target-desc {",
-    '  font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; color: #9da4b2;',
-    "  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;",
-    "}",
-    ".dr-popover-close {",
-    "  background: transparent; border: 0; color: #717886; width: 20px; height: 20px;",
-    "  cursor: pointer; border-radius: 4px; display: grid; place-items: center; font-size: 12px;",
-    "}",
-    ".dr-popover-close:hover { color: #f0f3f8; background: rgba(255, 255, 255, 0.08); }",
-    ".dr-textarea {",
-    "  width: 100%; height: 74px; background: #090a0d;",
-    "  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px;",
-    "  padding: 8px 10px; font: inherit; font-size: 12px; line-height: 1.5; color: #f0f3f8;",
-    "  resize: vertical; outline: none; margin-bottom: 8px; display: block;",
-    "}",
-    ".dr-textarea:focus { border-color: " +
+      "; outline-offset: 3px; }",
+    ".dr-box { position: fixed; display: none; border: 1px solid " +
       accent +
-      "; box-shadow: 0 0 0 2px rgba(78, 140, 255, 0.22); }",
+      "; background: #6f9cff0a; border-radius: 3px; pointer-events: none; }",
+    '.dr-caption { position: absolute; bottom: calc(100% + 6px); left: 0; max-width: min(360px, calc(100vw - 24px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; border-radius: 6px; background: #202022; color: #eeeef1; font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; pointer-events: none; }',
+    '.dr-popover { position: fixed; display: none; width: 320px; max-width: calc(100vw - 24px); padding: 12px; background: #242426; border: 1px solid #414145; border-radius: 14px; box-shadow: 0 12px 32px #0003; z-index: 30; pointer-events: auto; color: #f5f5f5; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; user-select: text; color-scheme: dark; }',
+    ".dr-popover-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; min-width: 0; }",
+    ".dr-tag { display: none; }",
+    ".dr-target-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d1d1d7; font-size: 13px; }",
+    ".dr-textarea { display: block; width: 100%; height: 88px; min-height: 70px; max-height: 180px; margin: 0 0 12px; padding: 10px 12px; resize: vertical; background: #1b1b1d; border: 1px solid #48484d; border-radius: 8px; color: #f5f5f5; font: inherit; outline: none; caret-color: " +
+      accent +
+      "; }",
+    ".dr-textarea::placeholder { color: #aaaab3; }",
+    ".dr-textarea:focus { border-color: " + accent + "; box-shadow: 0 0 0 1px " + accent + "; }",
+    ".dr-textarea::selection { background: #6f9cff50; }",
     ".dr-popover-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }",
-    ".dr-popover-hint { font-size: 10px; color: #717886; font-family: ui-monospace, monospace; }",
+    ".dr-popover-hint { color: #aaaab3; font-size: 11px; white-space: nowrap; }",
     ".dr-popover-actions { display: flex; align-items: center; gap: 6px; }",
-    ".dr-btn-cancel {",
-    "  background: transparent; border: 0; color: #9da4b2; font: inherit; font-size: 11px;",
-    "  padding: 5px 9px; border-radius: 4px; cursor: pointer;",
-    "}",
-    ".dr-btn-cancel:hover { color: #f0f3f8; background: rgba(255, 255, 255, 0.06); }",
-    ".dr-btn-save {",
-    "  background: " +
+    ".dr-btn-cancel, .dr-btn-save { min-height: 32px; padding: 6px 12px; border: 0; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }",
+    ".dr-btn-cancel { background: transparent; color: #c5c5cd; }",
+    ".dr-btn-cancel:hover { background: #ffffff0d; color: #fff; }",
+    ".dr-btn-save { background: " + accent + "; color: #10141e; }",
+    ".dr-btn-save:hover { filter: brightness(1.08); }",
+    ".dr-pin { position: fixed; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; background: " +
       accent +
-      "; border: 0; color: #0c0d10; font: inherit; font-weight: 650; font-size: 11px;",
-    "  padding: 6px 13px; border-radius: 5px; cursor: pointer; box-shadow: 0 2px 8px rgba(78, 140, 255, 0.35);",
-    "}",
-    ".dr-btn-save:hover { filter: brightness(1.1); }",
-    ".dr-pin {",
-    "  position: fixed; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center;",
-    "  background: " + accent + "; color: #0c0d10; font: 700 11px -apple-system, sans-serif;",
-    "  box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 2px rgba(255,255,255,0.9); z-index: 20;",
-    "  cursor: pointer; pointer-events: auto; user-select: none; transition: transform 0.15s ease;",
-    "}",
-    ".dr-pin:hover { transform: scale(1.15); }",
+      '; border: 0; border-radius: 50%; color: #10141e; font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-shadow: 0 2px 5px #0003; z-index: 20; cursor: pointer; pointer-events: auto; user-select: none; }',
+    ".dr-pin:hover { filter: brightness(1.12); }",
+    "@media (max-width: 440px) { .dr-toolbar { top: 12px; } .dr-brand { padding: 0 5px; } .dr-brand span, .dr-badge { display: none; } .dr-btn { padding: 6px 9px; } }",
+    ".dr-send { background: " + accent + "; color: #10141e; font-weight: 600; }",
+    ".dr-delivery[hidden] { display: none; }",
+    ".dr-send.sending svg { animation: dr-send-spin 1s linear infinite; }",
+    "@keyframes dr-send-spin { to { transform: rotate(360deg); } }",
+    ".dr-send:disabled { opacity: .55; cursor: wait; }",
+    ".dr-delivery { position: absolute; top: calc(100% + 8px); left: 0; width: 100%; padding: 8px 12px; border-radius: 10px; background: #202022; color: #d1d1d7; font-size: 12px; line-height: 1.5; box-shadow: 0 4px 12px #0002; cursor: default; }",
+    ".dr-dismiss { border: 0; background: transparent; color: #d1d1d7; font: inherit; text-decoration: underline; cursor: pointer; margin-left: 8px; }",
+    "@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }",
   ].join("\n");
   shadow.append(style);
 
@@ -120,7 +63,7 @@
   const toolbar = document.createElement("div");
   toolbar.className = "dr-toolbar";
   toolbar.innerHTML = [
-    '<div class="dr-brand">',
+    '<div class="dr-brand" title="Drag to move toolbar">',
     '  <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
     "  <span>Deck</span>",
     "</div>",
@@ -128,8 +71,9 @@
     '<button type="button" class="dr-btn" data-mode="element">Element</button>',
     '<button type="button" class="dr-btn" data-mode="region">Region</button>',
     '<div class="dr-divider"></div>',
-    '<span class="dr-badge">Alt+X</span>',
-    '<button type="button" class="dr-btn-close" title="Close Toolbar (Esc)">✕</button>',
+    '<button type="button" class="dr-btn dr-send" aria-label="Send to agent" title="Send to agent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4Z"/><path d="m22 2-11 11"/></svg></button>',
+    '<div class="dr-delivery" hidden role="status" aria-live="polite"><span class="dr-delivery-text"></span><button type="button" class="dr-dismiss" hidden>Dismiss delivery</button></div>',
+    '<button type="button" class="dr-btn-close" aria-label="Close toolbar" title="Close Toolbar (Esc)">✕</button>',
   ].join("");
   shadow.append(toolbar);
 
@@ -148,9 +92,9 @@
     '<div class="dr-popover-header">',
     '  <span class="dr-tag" id="dr-p-tag">ELEMENT</span>',
     '  <span class="dr-target-desc" id="dr-p-desc"></span>',
-    '  <button type="button" class="dr-popover-close" id="dr-p-close" title="Cancel (Esc)">✕</button>',
+    '  <button type="button" class="dr-popover-close" id="dr-p-close" aria-label="Close comment" title="Close (Esc)">✕</button>',
     "</div>",
-    '<textarea class="dr-textarea" id="dr-p-text" placeholder="What should change here? (e.g. adjust padding, fix alignment)"></textarea>',
+    '<textarea class="dr-textarea" id="dr-p-text" aria-label="Comment" placeholder="What should change here?"></textarea>',
     '<div class="dr-popover-footer">',
     '  <span class="dr-popover-hint">Ctrl+Enter to save</span>',
     '  <div class="dr-popover-actions">',
@@ -362,8 +306,8 @@
           "Element";
 
     // Position popover intelligently
-    const popW = 330;
-    const popH = 170;
+    const popW = Math.min(320, innerWidth - 24);
+    const popH = 210;
     let posX = Math.max(12, Math.min(innerWidth - popW - 12, r.x));
     let posY = r.y + r.height + 10;
     if (posY + popH > innerHeight - 12) {
@@ -396,31 +340,36 @@
     popover.style.display = "none";
     box.style.display = "none";
 
-    window.dispatchEvent(
-      new CustomEvent("deck:web-review-capture", {
-        detail: JSON.stringify(pendingTarget.data),
-      }),
-    );
-
-    // Add immediate pin locally for instant feedback
-    pins.push({
-      id: "local-" + Date.now(),
-      number: pins.length + 1,
-      selector: pendingTarget.data.selector,
-      rect: pendingTarget.r,
-      kind: pendingTarget.kind,
-      url: location.href,
-      comment: comment,
-      text: pendingTarget.data.text,
-    });
-    drawPins();
+    if (pendingTarget.id) {
+      window.dispatchEvent(
+        new CustomEvent("deck:web-review-edit-note", {
+          detail: JSON.stringify({ id: pendingTarget.id, comment }),
+        }),
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent("deck:web-review-capture", {
+          detail: JSON.stringify(pendingTarget.data),
+        }),
+      );
+    }
 
     pendingTarget = null;
     setMode("browse");
   }
 
   pClose.onclick = closeCommentPopover;
-  pCancel.onclick = closeCommentPopover;
+  pCancel.onclick = () => {
+    if (pendingTarget?.id) {
+      window.dispatchEvent(
+        new CustomEvent("deck:web-review-remove-note", {
+          detail: pendingTarget.id,
+        }),
+      );
+    }
+    closeCommentPopover();
+    box.style.display = "none";
+  };
   pSave.onclick = saveComment;
 
   pText.onkeydown = (e) => {
@@ -440,8 +389,9 @@
     host.style.visibility = "visible";
     box.style.display = "none";
 
-    toolbar.querySelectorAll(".dr-btn").forEach((btn) => {
+    toolbar.querySelectorAll(".dr-btn[data-mode]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.mode === mode);
+      btn.setAttribute("aria-pressed", String(btn.dataset.mode === mode));
     });
 
     if (mode === "element" && lastPoint) {
@@ -452,22 +402,102 @@
 
   function toggleToolbar() {
     toolbarVisible = !toolbarVisible;
+    window.dispatchEvent(
+      new CustomEvent("deck:web-review-ready", { detail: toolbarVisible ? "open" : "closed" }),
+    );
     toolbar.style.display = toolbarVisible ? "flex" : "none";
     if (toolbarVisible) {
       host.style.visibility = "visible";
-      setMode("element");
+      setMode("browse");
+      deliveryText.parentElement.hidden = true;
     } else {
       setMode("browse");
       closeCommentPopover();
     }
   }
 
-  toolbar.querySelectorAll(".dr-btn").forEach((btn) => {
+  const sendButton = toolbar.querySelector(".dr-send");
+  const deliveryText = toolbar.querySelector(".dr-delivery-text");
+  const dismissButton = toolbar.querySelector(".dr-dismiss");
+  sendButton.onclick = (e) => {
+    if (!e.isTrusted) return;
+    if (pendingTarget) {
+      deliveryText.parentElement.hidden = false;
+      deliveryText.textContent = "Save or cancel the open comment first.";
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("deck:web-review-send"));
+  };
+  dismissButton.onclick = (e) => {
+    if (
+      !e.isTrusted ||
+      !confirm(
+        "Check the agent conversation first. Dismiss this delivery? It will not be sent again automatically.",
+      )
+    )
+      return;
+    window.dispatchEvent(new CustomEvent("deck:web-review-dismiss"));
+  };
+  window.addEventListener("deck:web-review-delivery", (e) => {
+    try {
+      const state = JSON.parse(e.detail);
+      sendButton.disabled = !!state.sending;
+      dismissButton.hidden = !state.pending || !!state.sending;
+      sendButton.classList.toggle("sending", !!state.sending);
+      sendButton.setAttribute("aria-busy", String(!!state.sending));
+      deliveryText.textContent = state.error || state.message || "";
+      deliveryText.parentElement.hidden = !deliveryText.textContent && !state.pending;
+    } catch {}
+  });
+
+  let toolbarDrag = null;
+  function placeToolbar(x, y) {
+    const r = toolbar.getBoundingClientRect();
+    toolbar.style.transform = "none";
+    toolbar.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, x)) + "px";
+    toolbar.style.top = Math.max(8, Math.min(innerHeight - r.height - 8, y)) + "px";
+  }
+  toolbar.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !e.target.closest(".dr-brand")) return;
+    const r = toolbar.getBoundingClientRect();
+    toolbarDrag = { id: e.pointerId, dx: e.clientX - r.x, dy: e.clientY - r.y };
+    toolbar.setPointerCapture(e.pointerId);
+    toolbar.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+  toolbar.addEventListener("pointermove", (e) => {
+    if (!toolbarDrag || toolbarDrag.id !== e.pointerId) return;
+    placeToolbar(e.clientX - toolbarDrag.dx, e.clientY - toolbarDrag.dy);
+  });
+  const endToolbarDrag = () => {
+    toolbarDrag = null;
+    toolbar.style.cursor = "";
+  };
+  toolbar.addEventListener("lostpointercapture", endToolbarDrag);
+  toolbar.addEventListener("pointercancel", endToolbarDrag);
+  toolbar.addEventListener("pointerup", (e) => {
+    if (!toolbarDrag || toolbarDrag.id !== e.pointerId) return;
+    toolbar.releasePointerCapture(e.pointerId);
+    endToolbarDrag();
+  });
+  addEventListener("resize", () => {
+    if (!toolbarVisible || !toolbar.style.left) return;
+    const r = toolbar.getBoundingClientRect();
+    placeToolbar(r.x, r.y);
+  });
+
+  toolbar.querySelectorAll(".dr-btn[data-mode]").forEach((btn) => {
     btn.onclick = () => setMode(btn.dataset.mode);
   });
   toolbar.querySelector(".dr-btn-close").onclick = () => toggleToolbar();
 
+  // Events from the closed shadow root are retargeted to the overlay host.
+  function isReviewControl(e) {
+    return e.composedPath().includes(host);
+  }
+
   function move(e) {
+    if (isReviewControl(e)) return;
     if (mode === "browse" || popover.style.display === "block") return;
     lastPoint = { x: e.clientX, y: e.clientY };
     if (mode === "region" && start) {
@@ -495,6 +525,7 @@
   }
 
   function down(e) {
+    if (isReviewControl(e)) return;
     if (mode === "browse" || popover.style.display === "block" || e.button !== 0) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -504,6 +535,7 @@
   }
 
   function up(e) {
+    if (isReviewControl(e)) return;
     if (mode !== "region" || !start || popover.style.display === "block") return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -522,6 +554,10 @@
 
   let suppressClick = false;
   function click(e) {
+    if (isReviewControl(e)) {
+      suppressClick = false;
+      return;
+    }
     if (suppressClick) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -602,6 +638,7 @@
   document.addEventListener(
     "pointerup",
     (e) => {
+      if (isReviewControl(e)) return;
       const selected =
         mode === "region" && start && Math.hypot(start.x - e.clientX, start.y - e.clientY) > 5;
       up(e);
@@ -637,8 +674,25 @@
       } else if (p.rect) {
         r = p.rect;
       }
+      // Dynamic text can change while the screenshot is being saved. Keep the
+      // saved annotation visible at its captured position until its target resolves.
+      if (
+        !r &&
+        p.rect &&
+        p.viewport &&
+        innerWidth === p.viewport.width &&
+        innerHeight === p.viewport.height
+      ) {
+        r = {
+          ...p.rect,
+          x: p.rect.x + (p.viewport.scrollX || 0) - scrollX,
+          y: p.rect.y + (p.viewport.scrollY || 0) - scrollY,
+        };
+      }
       if (!r || r.y + r.height < 0 || r.y > innerHeight) continue;
-      const pin = document.createElement("span");
+      const pin = document.createElement("button");
+      pin.type = "button";
+      pin.setAttribute("aria-label", "Edit comment " + p.number);
       pin.className = "dr-pin";
       pin.dataset.pin = p.id;
       pin.textContent = String(p.number);
@@ -650,6 +704,7 @@
         e.stopPropagation();
         if (p.comment) {
           openCommentPopover(null, r, p.kind || "element");
+          pendingTarget.id = p.id;
           pText.value = p.comment;
         }
       };
@@ -689,8 +744,20 @@
           comment: n.comment,
           text: n.capture?.text,
         }));
+        host.style.visibility = "visible";
         drawPins();
       }
+    } catch {}
+  });
+
+  window.addEventListener("deck:web-review-capture-result", (e) => {
+    try {
+      const result = JSON.parse(e.detail);
+      if (result.error) {
+        deliveryText.textContent = result.error;
+        deliveryText.parentElement.hidden = false;
+      }
+      if (result.success) drawPins();
     } catch {}
   });
 
@@ -730,4 +797,5 @@
       return false;
     },
   };
+  window.dispatchEvent(new CustomEvent("deck:web-review-ready"));
 })("#6f9cff");

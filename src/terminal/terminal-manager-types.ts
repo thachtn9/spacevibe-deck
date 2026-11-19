@@ -224,6 +224,7 @@ export interface TerminalManager {
    * the agent said, which is what the panel is for.
    */
   serializePane(id: number, lines: number): string | null;
+  reviewComposerEmpty?(id: number): boolean;
   remoteScreen?(id: number, lines: number): Omit<RemoteScreen, "capturedAtMs" | "alive"> | null;
   /**
    * Whether this pane's PTY is still running (Agent Board spec §7's disabled

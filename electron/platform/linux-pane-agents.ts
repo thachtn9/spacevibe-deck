@@ -1,7 +1,7 @@
 /** Resolve launcher descendants only while they still read this pane's terminal. */
 import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
-import { inspectLinuxCodexSession } from "./linux-codex-session";
+import { inspectLinuxCodexSession, linuxProcessStart } from "./linux-codex-session";
 import type { PtyInfo } from "../pty/info";
 import type { PtySessionSnapshot } from "../pty/session-store";
 
@@ -36,6 +36,7 @@ export async function readLinuxPaneAgent(
     seen.add(pid);
     const root = path.join(procRoot, String(pid));
     try {
+      const start = await linuxProcessStart(pid, procRoot);
       const [cmdline, stdin, children] = await Promise.all([
         readFile(path.join(root, "cmdline"), "utf8"),
         readlink(path.join(root, "fd/0")),
@@ -73,6 +74,10 @@ export async function readLinuxPaneAgent(
           agent: binary,
           account,
           cwd,
+          reviewProcessIdentity:
+            start && (await linuxProcessStart(pid, procRoot)) === start
+              ? `process-${pid}-${start}`
+              : null,
         };
         if (binary === "codex") {
           const identity = await inspectLinuxCodexSession(pid, procRoot);

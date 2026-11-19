@@ -5,6 +5,15 @@ export const webReviewHost = {
   get available(): boolean {
     return "__deckHost" in globalThis;
   },
+  active(): Promise<ReviewTarget | null> {
+    return invoke("web_review_active");
+  },
+  activate(paneId: number | null): Promise<ReviewTarget | null> {
+    return invoke("web_review_activate", { paneId });
+  },
+  onActive(callback: (target: ReviewTarget | null) => void): Promise<() => void> {
+    return listen("web-review:active", ({ payload }) => callback(payload as ReviewTarget | null));
+  },
   open(root: string, configure = false): Promise<void> {
     return invoke("web_review_open", { root, configure });
   },

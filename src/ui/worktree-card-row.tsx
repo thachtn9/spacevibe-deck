@@ -1,9 +1,13 @@
+import { sameReviewTarget } from "../lib/web-review";
+import { WebReviewSessionMenu } from "./web-review-session-menu";
+import { activeReviewTarget, reviewCandidates } from "./web-review-active";
+import { webReviewHost } from "../host/web-review-host";
 import { RailPanePin } from "./rail-pane-pin";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { AgentGlyph } from "./controls/agent-glyph";
 import { SpaceRenameField } from "./spaces/space-rename-field";
 import { CHROME_ICON, DeckIcon } from "./controls/deck-icon";
-import { X } from "@phosphor-icons/react";
+import { Crosshair, X } from "@phosphor-icons/react";
 import { displayAgent, stateWord, subjectOf, subjectWhere } from "./agent-rail-card-model";
 import type { RailCardPane, RailState, RailWorktreeGroup } from "./agent-rail-model";
 import type { SignalConfidence } from "../terminal/agent-attention";
@@ -147,11 +151,13 @@ export interface CardAgentRowProps {
 function CardRowText({
   pane,
   editing,
+  reviewActive,
   onCommit,
   onCancel,
 }: {
   readonly pane: RailCardPane;
   readonly editing: boolean;
+  readonly reviewActive: boolean;
   readonly onCommit: (name: string | null) => void;
   readonly onCancel: () => void;
 }) {
@@ -169,6 +175,14 @@ function CardRowText({
         />
       ) : (
         <span class="asr-card__name">
+          {reviewActive && (
+            <span
+              class="asr-card__pin asr-card__review-active"
+              aria-label="Active Browser Review target"
+            >
+              <DeckIcon icon={Crosshair} size={CHROME_ICON} />
+            </span>
+          )}
           <RailPanePin id={pane.paneId} />
           {first}
         </span>
@@ -209,6 +223,15 @@ export function CardAgentRow({
   const hit = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const wasEditing = useRef(false);
+  const [reviewMenu, setReviewMenu] = useState<DOMRect | null>(null);
+  const reviewActive =
+    activeReviewTarget.value?.paneId === pane.paneId &&
+    reviewCandidates.value.some(
+      (c) =>
+        c.paneId === pane.paneId &&
+        !!activeReviewTarget.value &&
+        sameReviewTarget(c, activeReviewTarget.value),
+    );
 
   // Unmounting the field drops focus to <body>; hand it back to the row. A
   // press elsewhere that ended the edit has already moved focus, so it stays.
@@ -227,14 +250,27 @@ export function CardAgentRow({
       data-confidence={pane.confidence}
       data-focused={pane.focused}
       data-pane-id={pane.paneId}
+      onContextMenu={(event) => {
+        if (!webReviewHost.available) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setReviewMenu(new DOMRect(event.clientX, event.clientY, 0, 0));
+      }}
+      onKeyDown={(event) => {
+        if (webReviewHost.available && event.shiftKey && event.key === "F10") {
+          event.preventDefault();
+          event.stopPropagation();
+          setReviewMenu(event.currentTarget.getBoundingClientRect());
+        }
+      }}
     >
       <button
         ref={hit}
         type="button"
         class="asr-card__hit"
         aria-current={pane.focused ? "true" : undefined}
-        aria-label={`Focus ${pane.label} in ${where}, ${label}`}
-        title={rowTitle(pane, label)}
+        aria-label={`Focus ${pane.label} in ${where}, ${label}${reviewActive ? ", Active Browser Review target" : ""}`}
+        title={`${rowTitle(pane, label)}${reviewActive ? " — Active Browser Review target" : ""}`}
         onClick={() => {
           onFocusPane(pane.tabIndex, pane.paneId);
         }}
@@ -250,6 +286,7 @@ export function CardAgentRow({
       <CardRowText
         pane={pane}
         editing={editing}
+        reviewActive={reviewActive}
         onCommit={(name) => {
           setEditing(false);
           onRenameTab?.(pane.tabIndex, name);
@@ -263,6 +300,13 @@ export function CardAgentRow({
       {/* DL-27.21, kept: every agent row closes its own pane — the same
           `asr-row__actions` / `asr-row__action--close` vocabulary the old tab
           row and its leaves both used, not a card-local reinvention of it. */}
+      {reviewMenu && (
+        <WebReviewSessionMenu
+          paneId={pane.paneId}
+          rect={reviewMenu}
+          close={() => setReviewMenu(null)}
+        />
+      )}
       <div class="asr-row__actions">
         <button
           type="button"

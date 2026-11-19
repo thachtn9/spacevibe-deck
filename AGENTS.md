@@ -13,6 +13,9 @@ Nesting is presentation only: project identities and session focus/close targets
 Plain-folder scans include their resolved alias path so adding a symlink parent after its
 canonical child automatically re-nests the existing row without changing terminal paths.
 `npm run build:linux` builds Electron without regenerating the frozen Tauri menu.
+After completing code changes and their scoped verification, always run `npm run build:linux`
+before handing the work back. This owner requirement authorizes the local renderer and Electron
+builds without asking again. Report any build failure; do not claim completion until it is resolved.
 `npm run electron:package:linux` creates local AppImage/deb artifacts. Linux auto-update is
 unsupported until a dedicated feed exists; upstream's feed only serves macOS/Windows.
 See [the Linux runbook](docs/operations/linux.md) for setup and launch commands.
@@ -139,17 +142,23 @@ then remembers it. Folder headers and checkout menus offer Open in VS Code and O
 Linux uses an executable code command with argv and Electron shell.openPath respectively.
 
 Browser Review runs in the unpacked Chrome Manifest V3 extension under extensions/deck-review.
-The folder menu's Browser Extension window only pairs or revokes that extension; Deck no longer
-opens the project web page. A dedicated authenticated bridge binds 127.0.0.1:43129 and is separate
-from Deck Remote. Pairing codes expire, credentials stay private, and extension requests cannot
-read arbitrary files or write arbitrary terminal text. Drafts persist in Chrome; durable batch IDs
-make retries idempotent in Deck. Queue targets retain exact conversation/process/pane references,
-confirmed idle and composer guards. Uncertain or partially pasted requests never auto-replay.
+A dedicated authenticated bridge binds 127.0.0.1:43129, separate from Deck Remote. The extension
+connects without a pairing code using its pinned public Chrome identity and a private bridge token;
+ordinary web origins cannot connect. The Chrome side panel and folder pairing entry are retired.
+Right-click a live rail session to select the single Active Browser Review target. Keep its exact
+conversation/process/pane identity; Linux shared-daemon clients may use a tty-bound PID
+generation for Browser Review only, never for resume or account switching; replacing or restarting it requires selecting Active again.
+The movable top-center toolbar's Send submits saved comments for the current page immediately.
+Allow Browser Review sends while agents are working; submitted requests belong to the CLI.
+Reject unsent composer drafts and approval prompts without queueing. Reserve batch and write identities
+before terminal side effects; retry the same batch after a lost reply, never replay uncertain or
+partially pasted input. Drafts remain in Chrome until confirmed sent. Dismiss delivery requires
+checking the agent first. Extension requests cannot read arbitrary files or write arbitrary text.
 Capture URL, viewport, DOM evidence and screenshots together; React/Angular hints are optional
-and untrusted. Deck Review Chrome Extension follows the Obsidian Dark design language with segmented pill
-mode toolbars, card-based annotation editors, monospace selector chips, live agent idle/working badges,
-and glassmorphic precision overlay inspection. Rebuild the shared collector with node scripts/build-review-extension.mjs after
-changing electron/web-review/inject.ts. Test browser and Electron with scratch profiles only.
+and untrusted. The annotation UI uses a compact neutral-dark toolbar and comment popup with
+14px input text, thin selection outlines and numbered pins. Rebuild the shared collector with
+node scripts/build-review-extension.mjs after changing electron/web-review/inject.ts.
+Test browser and Electron with scratch profiles only.
 
 Pinned terminals belong to their original tab but render in a window-level split around the
 selected workspace. Only dragging a rail session onto a pane or workspace edge creates a pin; account
@@ -296,8 +305,9 @@ read stylesheets and docs and fail when a ledger falls behind. The
 bypass it with `--no-verify` to land a red change. The policy suites read the working tree, so in a
 checkout holding another session's uncommitted files they can fail on that work: push from a
 clean worktree instead. A test your change breaks gets updated in
-the same commit. The full suite, `npm run build` and `electron:build` stay CI's job and run
-locally only when asked; a change reported without them says so. Manual native acceptance, real-device upgrade checks, and Windows install/update checks run
+the same commit. The full test suite stays CI's job and runs locally only when asked. After scoped verification,
+always run `npm run build:linux` as required by the owner in the Local Linux baseline; this
+includes the renderer and Electron builds. Report checks actually performed. Manual native acceptance, real-device upgrade checks, and Windows install/update checks run
 only when explicitly requested; they are not prerequisites for release completion or issue
 closure. Report checks actually performed without treating omitted checks as successful.
 

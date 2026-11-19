@@ -12,6 +12,8 @@ export interface PaneProcessInfo {
   /** Foreground OS process identity; null when the host cannot inspect it. */
   readonly processId?: number | null;
   /** Electron-only exact Codex writer-lock identity; absent on older hosts. */
+  /** Browser Review only: tty-bound process generation, never a resume identity. */
+  readonly reviewProcessIdentity?: string | null;
   readonly codexSessionId?: string | null;
   /** Linux's current TUI state; a locked resume is not a running conversation. */
   readonly codexIdentityState?: "ready" | "locked" | "shared" | "unidentified";

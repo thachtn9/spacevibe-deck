@@ -329,6 +329,7 @@ export interface TabManager {
    * act wearing a soft label.
    */
   restartPane(paneId: number): Promise<boolean>;
+  refreshWebReviewTargets?(): Promise<void>;
   webReviewTargets?(clientId: string): ReviewCandidate[];
   deliverWebReview?(
     target: ReviewTarget,

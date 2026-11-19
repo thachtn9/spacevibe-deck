@@ -10,6 +10,8 @@
 
 /** Commands: renderer → main, request/response. */
 export const CHANNELS = {
+  webReviewActive: "web_review_active",
+  webReviewActivate: "web_review_activate",
   webReviewOpen: "web_review_open",
   webReviewPairing: "web_review_pairing",
   webReviewRevoke: "web_review_revoke",
@@ -240,6 +242,7 @@ export const CHANNELS = {
 export const EVENTS = {
   webReviewState: "web-review:state",
   webReviewDeliver: "web-review:deliver",
+  webReviewActive: "web-review:active",
   webReviewConfigure: "web-review:configure",
   webReviewSelected: "web-review:selected",
   textEditorCloseRequested: "text-editor:close-requested",

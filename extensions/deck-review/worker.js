@@ -1,9 +1,8 @@
 chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(console.error);
 const API = "http://127.0.0.1:43129";
 const locks = new Set();
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 
-async function api(route, payload) {
+async function api(route, payload, reconnect = true) {
   const { token } = await chrome.storage.local.get("token");
   const response = await fetch(API + route, {
     method: payload === undefined ? "GET" : "POST",
@@ -13,11 +12,62 @@ async function api(route, payload) {
       ...(token ? { Authorization: "Bearer " + token } : {}),
     },
     ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(35000),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error || "Deck request failed.");
+  if (response.status === 401 && reconnect && route !== "/connect") {
+    const connected = await api("/connect", {}, false);
+    await chrome.storage.local.set({ token: connected.token });
+    return api(route, payload, false);
+  }
+  if (!response.ok) {
+    throw new Error(value.error || "Deck request failed.");
+  }
   return value;
+}
+
+let preparedActive = null;
+async function prepareActive() {
+  const state = await api("/state");
+  preparedActive = state.active || null;
+  return state;
+}
+
+async function sendNotes(url) {
+  const { notes = [], pendingBatch } = await chrome.storage.local.get(["notes", "pendingBatch"]);
+  let batch = pendingBatch;
+  if (!batch) {
+    const target = preparedActive || (await prepareActive()).active;
+    if (!target)
+      throw new Error(
+        "In Deck, right-click an agent session and select Set active for Browser Review.",
+      );
+    const annotations = notes.filter((n) => n.capture?.url === url);
+    if (!annotations.length) throw new Error("Add a comment on this page first.");
+    const t = target;
+    batch = {
+      id: crypto.randomUUID(),
+      root: t.root,
+      clientId: t.clientId,
+      paneId: t.paneId,
+      sessionId: t.sessionId,
+      annotations,
+    };
+    await chrome.storage.local.set({ pendingBatch: batch });
+  }
+  const result = await api("/batch", batch);
+  if (result.status === "sent") {
+    const sent = new Set(batch.annotations.map((n) => n.id));
+    const latest = await chrome.storage.local.get("notes");
+    await chrome.storage.local.set({
+      notes: (latest.notes || []).filter((n) => !sent.has(n.id)),
+      pendingBatch: null,
+    });
+  } else if (result.status === "cancelled") {
+    await chrome.storage.local.set({ pendingBatch: null });
+    throw new Error(result.message);
+  }
+  return result;
 }
 
 async function active() {
@@ -30,9 +80,41 @@ async function active() {
 async function handle(message, sender) {
   const ownPage = sender.url?.startsWith(chrome.runtime.getURL(""));
   if (!ownPage && sender.tab) {
+    if (["status", "send", "dismiss"].includes(message.type)) {
+      if (sender.frameId !== 0) throw new Error("Top frame required.");
+      if (message.type === "status") {
+        const state = await prepareActive();
+        const { pendingBatch } = await chrome.storage.local.get("pendingBatch");
+        return { active: state.active?.label || "", ready: state.ready, pending: !!pendingBatch };
+      }
+      const tab = await chrome.tabs.get(sender.tab.id);
+      if (!tab.active || tab.url !== sender.url) throw new Error("Keep the review page active.");
+      if (message.type === "send") return sendNotes(tab.url);
+      const { pendingBatch } = await chrome.storage.local.get("pendingBatch");
+      if (pendingBatch) await api("/cancel", { id: pendingBatch.id });
+      await chrome.storage.local.set({ pendingBatch: null });
+      return {};
+    }
     if (message.type === "get_notes") {
       const { notes = [] } = await chrome.storage.local.get("notes");
-      return { notes };
+      return { notes: notes.filter((n) => n.capture?.url === sender.url) };
+    }
+    if (message.type === "edit" || message.type === "remove") {
+      if (sender.frameId !== 0) throw new Error("Top frame required.");
+      const { notes = [], pendingBatch } = await chrome.storage.local.get([
+        "notes",
+        "pendingBatch",
+      ]);
+      if (pendingBatch) throw new Error("Resolve the pending delivery before editing comments.");
+      const note = notes.find((n) => n.id === message.id && n.capture?.url === sender.url);
+      if (!note) throw new Error("Comment unavailable on this page.");
+      if (message.type === "remove") {
+        await chrome.storage.local.set({ notes: notes.filter((n) => n !== note) });
+      } else {
+        note.comment = String(message.comment || "").slice(0, 8000);
+        await chrome.storage.local.set({ notes });
+      }
+      return {};
     }
     if (message.type !== "capture" || sender.frameId !== 0 || locks.has(sender.tab.id)) return;
     locks.add(sender.tab.id);
@@ -40,6 +122,7 @@ async function handle(message, sender) {
       const tab = await chrome.tabs.get(sender.tab.id);
       if (!tab.active || !/^https?:\/\//.test(tab.url || ""))
         throw new Error("Keep the selected tab active while capturing.");
+      await prepareActive();
       const capture = JSON.parse(message.raw);
       if (capture.url !== tab.url) throw new Error("The page changed. Select again.");
       const geometry = async () =>
@@ -137,24 +220,25 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   return true;
 });
 
-// Shortcut handler for Alt+X to toggle in-page floating review toolbar
-chrome.commands.onCommand.addListener(async (command) => {
-  if (command === "toggle-review") {
-    try {
-      const tab = await active();
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["bridge.js"] });
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["capture.js"],
-        world: "MAIN",
-      });
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN",
-        func: () => window.__deckReview?.toggleToolbar?.(),
-      });
-    } catch (e) {
-      console.warn("Deck Review: could not toggle toolbar on active tab:", e);
-    }
-  }
+async function toggleReview() {
+  const tab = await active();
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["bridge.js"] });
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ["capture.js"],
+    world: "MAIN",
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: "MAIN",
+    func: () => window.__deckReview?.toggleToolbar?.(),
+  });
+}
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "toggle-review")
+    void toggleReview().catch((error) => console.warn("Deck Review:", error));
+});
+
+chrome.action.onClicked.addListener(() => {
+  void toggleReview().catch((error) => console.warn("Deck Review:", error));
 });

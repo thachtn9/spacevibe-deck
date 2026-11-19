@@ -70,6 +70,8 @@ const GLYPH_EXEMPT = (path: string): boolean =>
   path === "web-review/window.tsx" ||
   path === "lib/shortcut-label.ts" ||
   path === "terminal/link-provider.ts" ||
+  // Matches a CLI prompt in terminal output.
+  path === "terminal/review-composer.ts" ||
   path === "open-board/workspaces-store.ts" ||
   // Its tooltips spell the Enter key as `⇧↩` / `↩`. Same character as the
   // Prompt Board's retired inject glyph, opposite meaning — one names a key,

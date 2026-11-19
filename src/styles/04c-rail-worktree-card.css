@@ -573,3 +573,15 @@ button.asr-checkout__focus:focus-visible {
 .asr-card__row[data-pane-id] > .asr-card__hit {
   cursor: grab;
 }
+
+@keyframes asr-review-active-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .asr-card__review-active {
+    animation: asr-review-active-turn 4s linear infinite;
+  }
+}

@@ -44,6 +44,18 @@ async function processFile(
 }
 
 describe("Linux pane agent identity", () => {
+  it("gives shared clients a separate process generation for review without inventing a session", async () => {
+    await processFile(20, "/opt/codex");
+    const stat = (start: string) => `20 (codex) S ${Array(18).fill("0").join(" ")} ${start} 0`;
+    await writeFile(path.join(root, "20/stat"), stat("123"));
+    const first = await readLinuxPaneAgent(info, pane, root);
+    expect(first.reviewProcessIdentity).toBe("process-20-123");
+    expect(first.codexSessionId).toBeNull();
+    await writeFile(path.join(root, "20/stat"), stat("456"));
+    expect((await readLinuxPaneAgent(info, pane, root)).reviewProcessIdentity).toBe(
+      "process-20-456",
+    );
+  });
   it("reads the automatically selected Codex account from the agent, not its launcher", async () => {
     await processFile(20, "python3\0/manager/codex_mgr.py", "30");
     await processFile(30, "/opt/codex");

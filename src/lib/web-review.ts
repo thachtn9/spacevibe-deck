@@ -104,9 +104,7 @@ export function sameReviewTarget(a: ReviewTarget, b: ReviewTarget): boolean {
 
 export function reviewReady(candidate: ReviewCandidate): boolean {
   return (
-    candidate.phase === "idle" &&
-    candidate.confidence === "explicit" &&
-    candidate.hasRun &&
+    candidate.phase !== "exited" &&
     !candidate.inputPending &&
     (candidate.attention === "none" || candidate.attention === "completed")
   );

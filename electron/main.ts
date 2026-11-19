@@ -262,7 +262,9 @@ const webReview = registerWebReview({
       info?.kind === "agent" &&
       info.agent === target.agent &&
       info.processId === target.processId &&
-      (target.agent === "codex" ? info.codexSessionId : info.agySessionId) === target.sessionId
+      ((target.agent === "codex" ? info.codexSessionId : info.agySessionId) ||
+        (info.codexIdentityState !== "locked" ? info.reviewProcessIdentity : null)) ===
+        target.sessionId
     );
   },
   write: (label, id, data) => pty.write(label, id, data),

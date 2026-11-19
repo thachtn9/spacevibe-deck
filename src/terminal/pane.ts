@@ -1,3 +1,4 @@
+import { reviewComposerEmpty } from "./review-composer";
 import { createRemoteTerminal } from "./remote-terminal";
 import { terminalMouseEncodingSequence } from "../lib/terminal-mouse-state";
 import { Terminal } from "@xterm/xterm";
@@ -104,6 +105,7 @@ export interface Pane {
    */
   serializeScrollback(lines: number): string;
   /** Read resolved display cells without replaying escapes or resizing this pane. */
+  reviewComposerEmpty?(): boolean;
   remoteScreen?(lines: number): ReturnType<typeof readRemoteScreen>;
   /**
    * Current terminal geometry in cells — travels with the pane across a move
@@ -691,6 +693,7 @@ export function createPane(
     write,
     flush,
     serializeScrollback,
+    reviewComposerEmpty: () => reviewComposerEmpty(term),
     remoteScreen: (lines) => readRemoteScreen(term, lines),
     // Getters, never captured values: a pane that resized after construction
     // must report what the user last saw, not what it was born with.
